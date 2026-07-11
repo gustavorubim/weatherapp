@@ -331,6 +331,11 @@ html, body {
 
 .radar-overlay {
   image-rendering: auto;
+  pointer-events: none;
+}
+
+.leaflet-image-layer.radar-overlay {
+  z-index: 450 !important;
 }
 
 .leaflet-container { font: inherit; }

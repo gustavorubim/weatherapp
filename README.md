@@ -61,23 +61,40 @@ Optional config: copy `.env.example` → `.env` (poll interval, image size, host
 
 ---
 
-## CLI
+## CLI (no web UI needed)
 
-Useful for smoke tests or headless archiving:
+Archive from a terminal — same `cache/` folder the web UI reads later.
 
 ```bash
+source .venv/bin/activate
+
 # One poll
 python -m app.cache_cli start KTBW --once
-python -m app.cache_cli start TMCO --once    # TDWR (Orlando)
+python -m app.cache_cli start TMCO --once
 
-# Run for a while, then stop
-python -m app.cache_cli start KTBW --duration 180
+# Run for 2 days (headless) — leave this terminal open / use tmux/screen
+python -m app.cache_cli start KTBW --for 2d
+
+# Multiple radars for 48 hours, status log every 15 minutes
+python -m app.cache_cli start KTBW TMCO KJAX --for 48h --status-every 15m
+
+# Until you hit Ctrl+C
+python -m app.cache_cli start KTBW
+
 python -m app.cache_cli status
 
-# Export from cached frames
+# Export from whatever was cached
 python -m app.video_cli export KTBW \
   --start 2020-01-01 --end 2099-01-01 \
   --fps 12 --out videos/ktbw_loop.mp4
+```
+
+Tip: for overnight/multi-day runs, use `tmux` or `screen` so closing the laptop lid / SSH drop doesn’t kill the process:
+
+```bash
+tmux new -s radar
+python -m app.cache_cli start KTBW TMCO --for 2d
+# detach: Ctrl+b then d
 ```
 
 ---

@@ -74,6 +74,28 @@
     });
   }
 
+  function pad2(n) {
+    return String(n).padStart(2, "0");
+  }
+
+  /** Format a Date into datetime-local using UTC components (inputs are labeled UTC). */
+  function toUtcInput(d) {
+    return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}T${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+  }
+
+  function utcInputToIso(value) {
+    if (!value) return null;
+    return value.length === 16 ? `${value}:00Z` : `${value}Z`;
+  }
+
+  function setExportWindowFromFrames(frames) {
+    if (!frames.length) return;
+    const first = new Date(frames[0].utc);
+    const last = new Date(frames[frames.length - 1].utc);
+    el.exportStart.value = toUtcInput(new Date(first.getTime() - 60 * 1000));
+    el.exportEnd.value = toUtcInput(new Date(last.getTime() + 60 * 1000));
+  }
+
   function selectRadar(radar) {
     const prev = state.selected;
     state.selected = radar;
@@ -136,7 +158,8 @@
       el.scrub.max = String(frames.length - 1);
       el.scrub.value = String(frames.length - 1);
       el.scrubCount.textContent = `${frames.length} frames`;
-      el.btnOverlayPlay.disabled = frames.length < 1;
+      el.btnOverlayPlay.disabled = false;
+      setExportWindowFromFrames(frames);
       showFrame(frames.length - 1);
     } catch {
       clearPreview();
@@ -147,7 +170,7 @@
     const frame = state.frames[index];
     if (!frame || !state.selected) return;
     el.previewImg.hidden = false;
-    el.previewImg.src = `/api/cache/${state.selected.id}/frame/${encodeURIComponent(frame.filename)}?t=${Date.now()}`;
+    el.previewImg.src = `/api/cache/${state.selected.id}/frame/${encodeURIComponent(frame.filename)}`;
     el.scrubLabel.textContent = frame.utc;
   }
 
@@ -169,7 +192,7 @@
       state.overlayTimer = null;
     }
     state.overlayPlaying = false;
-    el.hudPause.textContent = "Play";
+    if (el.hudPause) el.hudPause.textContent = "Play";
   }
 
   function clearOverlay() {
@@ -179,6 +202,7 @@
       state.overlay = null;
     }
     state.overlayFrames = [];
+    state.overlayIndex = 0;
     el.overlayHud.hidden = true;
     el.btnOverlayStop.disabled = true;
   }
@@ -188,7 +212,13 @@
     const i = ((index % state.overlayFrames.length) + state.overlayFrames.length) % state.overlayFrames.length;
     state.overlayIndex = i;
     const frame = state.overlayFrames[i];
-    state.overlay.setUrl(`${frame.url}?t=${Date.now()}`);
+    const url = frame.url;
+    const img = state.overlay.getElement && state.overlay.getElement();
+    if (img) {
+      img.src = url;
+    } else {
+      state.overlay.setUrl(url);
+    }
     el.hudLabel.textContent = `${frame.utc} · ${i + 1}/${state.overlayFrames.length}`;
   }
 
@@ -197,9 +227,14 @@
     if (state.overlayFrames.length < 2) {
       state.overlayPlaying = false;
       el.hudPause.textContent = "Play";
+      el.hudLabel.textContent = state.overlayFrames[0]
+        ? `${state.overlayFrames[0].utc} · 1/1 (need 2+ frames to animate)`
+        : "—";
       return;
     }
-    const interval = Math.max(40, Math.round(1000 / (fps || 8)));
+    // Cap overlay FPS — 2048px PNGs are heavy to swap quickly.
+    const rate = Math.min(Math.max(Number(fps) || 6, 1), 12);
+    const interval = Math.max(80, Math.round(1000 / rate));
     state.overlayPlaying = true;
     el.hudPause.textContent = "Pause";
     state.overlayTimer = setInterval(() => {
@@ -207,33 +242,54 @@
     }, interval);
   }
 
+  function preloadFrames(frames) {
+    frames.slice(0, 40).forEach((f) => {
+      const img = new Image();
+      img.src = f.url;
+    });
+  }
+
   async function playOverlayFromCache(fps) {
     if (!state.selected) return;
     showMsg(el.actionMsg, "Loading map overlay…");
     try {
-      const start = localInputToIso(el.exportStart.value);
-      const end = localInputToIso(el.exportEnd.value);
-      const qs = new URLSearchParams();
-      if (start) qs.set("start", start);
-      if (end) qs.set("end", end);
-      const data = await fetchJSON(`/api/cache/${state.selected.id}/overlay?${qs}`);
-      if (!data.frames.length) throw new Error("No frames in selected time range");
+      // Prefer all cached frames for overlay so a tight/wrong time window
+      // cannot silently empty the playlist. Export still uses the form range.
+      let data = await fetchJSON(`/api/cache/${state.selected.id}/overlay`);
+      if (!data.frames.length) {
+        throw new Error("No cached frames yet — start archiving first");
+      }
+
+      if (!data.bounds || !Array.isArray(data.bounds) || data.bounds.length !== 2) {
+        throw new Error("Missing geographic bounds for overlay");
+      }
 
       clearOverlay();
       const bounds = L.latLngBounds(data.bounds);
+      if (!bounds.isValid()) {
+        throw new Error("Invalid overlay bounds");
+      }
+
       const opacity = Number(el.overlayOpacity.value) / 100;
       state.overlayFrames = data.frames;
+      preloadFrames(data.frames);
+
       state.overlay = L.imageOverlay(data.frames[0].url, bounds, {
         opacity,
         interactive: false,
         className: "radar-overlay",
+        zIndex: 450,
       }).addTo(state.map);
-      state.map.fitBounds(bounds.pad(0.05));
+
+      state.map.fitBounds(bounds, { padding: [24, 24], maxZoom: 9 });
       el.overlayHud.hidden = false;
       el.btnOverlayStop.disabled = false;
       setOverlayFrame(0);
-      startOverlayPlayback(fps || Number(el.exportFps.value) || 8);
-      showMsg(el.actionMsg, `Map overlay · ${data.frames.length} frames (${data.product})`);
+      startOverlayPlayback(fps || Number(el.exportFps.value) || 6);
+      showMsg(
+        el.actionMsg,
+        `Map overlay · ${data.frames.length} frames (${data.product || "radar"})`
+      );
     } catch (err) {
       showMsg(el.actionMsg, err.message, true);
     }
@@ -273,17 +329,8 @@
   function defaultExportWindow() {
     const end = new Date();
     const start = new Date(end.getTime() - 6 * 60 * 60 * 1000);
-    const toLocalInput = (d) => {
-      const pad = (n) => String(n).padStart(2, "0");
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    };
-    el.exportStart.value = toLocalInput(start);
-    el.exportEnd.value = toLocalInput(end);
-  }
-
-  function localInputToIso(value) {
-    if (!value) return null;
-    return value.length === 16 ? `${value}:00Z` : `${value}Z`;
+    el.exportStart.value = toUtcInput(start);
+    el.exportEnd.value = toUtcInput(end);
   }
 
   async function initMap() {
@@ -335,7 +382,7 @@
   });
 
   el.btnOverlayPlay.addEventListener("click", () => {
-    playOverlayFromCache(Number(el.exportFps.value) || 8);
+    playOverlayFromCache(Number(el.exportFps.value) || 6);
   });
 
   el.btnOverlayStop.addEventListener("click", () => {
@@ -353,7 +400,7 @@
     if (state.overlayPlaying) {
       stopOverlayTimer();
     } else {
-      startOverlayPlayback(Number(el.exportFps.value) || 8);
+      startOverlayPlayback(Number(el.exportFps.value) || 6);
     }
   });
 
@@ -370,8 +417,8 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           radar_id: state.selected.id,
-          start: localInputToIso(el.exportStart.value),
-          end: localInputToIso(el.exportEnd.value),
+          start: utcInputToIso(el.exportStart.value),
+          end: utcInputToIso(el.exportEnd.value),
           fps: Number(el.exportFps.value) || 15,
         }),
       });
@@ -388,10 +435,8 @@
     }
   });
 
-  // After export, play the same frame range as a georeferenced overlay
-  // (MP4 itself isn't geo-aligned; cached frames are).
   el.btnOverlayExport.addEventListener("click", () => {
-    playOverlayFromCache(Number(el.exportFps.value) || 8);
+    playOverlayFromCache(Number(el.exportFps.value) || 6);
   });
 
   defaultExportWindow();
