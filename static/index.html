@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RadarVault</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="panel">
+      <header class="brand">
+        <div class="brand-mark" aria-hidden="true"></div>
+        <div>
+          <h1>RadarVault</h1>
+          <p class="tagline">Local NWS radar archive</p>
+        </div>
+      </header>
+
+      <section class="block">
+        <h2>Selected radar</h2>
+        <div id="selected" class="selected empty">Click a marker on the map</div>
+        <div class="row">
+          <button id="btn-start" class="btn primary" disabled>Start archiving</button>
+          <button id="btn-stop" class="btn" disabled>Stop</button>
+        </div>
+        <p id="action-msg" class="msg" hidden></p>
+      </section>
+
+      <section class="block">
+        <h2>Status</h2>
+        <div id="status-list" class="status-list">No active archives yet.</div>
+      </section>
+
+      <section class="block">
+        <h2>Preview</h2>
+        <div class="preview-wrap">
+          <img id="preview-img" alt="Latest cached frame" hidden />
+          <p id="preview-empty" class="muted">No frames cached for this radar.</p>
+        </div>
+        <div class="scrubber" id="scrubber" hidden>
+          <input type="range" id="scrub" min="0" max="0" value="0" />
+          <div class="scrub-meta">
+            <span id="scrub-label">—</span>
+            <span id="scrub-count" class="muted"></span>
+          </div>
+        </div>
+        <div class="row overlay-row">
+          <button id="btn-overlay-play" class="btn" disabled>Play on map</button>
+          <button id="btn-overlay-stop" class="btn" disabled>Clear overlay</button>
+        </div>
+        <label class="opacity-label">Overlay opacity
+          <input type="range" id="overlay-opacity" min="20" max="100" value="75" />
+        </label>
+      </section>
+
+      <section class="block">
+        <h2>Generate video</h2>
+        <form id="export-form" class="form">
+          <label>Start (UTC)
+            <input type="datetime-local" id="export-start" required />
+          </label>
+          <label>End (UTC)
+            <input type="datetime-local" id="export-end" required />
+          </label>
+          <label>FPS
+            <input type="number" id="export-fps" min="1" max="60" value="15" />
+          </label>
+          <button type="submit" class="btn primary" id="btn-export" disabled>Generate MP4</button>
+        </form>
+        <p id="export-msg" class="msg" hidden></p>
+        <div class="row">
+          <a id="export-link" class="download" href="#" hidden>Download video</a>
+          <button id="btn-overlay-export" class="btn" hidden>Play export on map</button>
+        </div>
+      </section>
+    </aside>
+
+    <main class="map-pane">
+      <div id="map"></div>
+      <div class="map-legend">
+        <span><i class="dot supported"></i> WSR-88D (sr_bref)</span>
+        <span><i class="dot tdwr"></i> TDWR (bref1)</span>
+        <span><i class="dot unsupported"></i> No archive product</span>
+        <span><i class="dot selected"></i> Selected</span>
+      </div>
+      <div id="overlay-hud" class="overlay-hud" hidden>
+        <button id="hud-pause" class="btn">Pause</button>
+        <span id="hud-label" class="mono">—</span>
+      </div>
+    </main>
+  </div>
+
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
