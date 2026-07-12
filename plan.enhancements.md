@@ -745,7 +745,7 @@ python -m app.analysis_cli cells KTBW --start 2026-07-11T21:00:00Z --end 2026-07
 **Evidence**
 
 ```text
-Commit(s): (recorded after commit)
+Commit(s): 99c98d6, 371e846, 317f2f1
 Commands: python -m pytest tests/analysis/test_reflectivity.py tests/analysis/test_clutter.py tests/analysis/test_cells.py -q; python -m app.analysis_cli cells KTBW --start 2026-07-11T21:00:00Z --end 2026-07-12T00:00:00Z --dry-run
 Result: 9 passed; dry-run JSON with frame_count=0 on empty WT6 cache (no source mutation)
 Artifacts: docs/analysis-methods.md; app/analysis/*; app/analysis_cli.py; tests/analysis/test_{reflectivity,clutter,cells}.py
@@ -787,7 +787,7 @@ small real KTBW sample.
 **Evidence**
 
 ```text
-Commit(s): (recorded after commit)
+Commit(s): 99c98d6, 371e846, 317f2f1
 Commands: python -m pytest tests/analysis/test_motion.py tests/analysis/test_nowcast.py tests/analysis/test_evaluation.py -q; python -m app.analysis_cli nowcast KTBW --lead-minutes 15 --dry-run; python -m app.analysis_cli evaluate --fixture synthetic-moving-cell
 Result: 12 passed; dry-run OK; synthetic evaluate advection CSI=1.0 vs persistence CSI≈0.72 (outperforms)
 Artifacts: docs/analysis-methods.md (limitations section); tests/analysis/test_{motion,nowcast,evaluation}.py
