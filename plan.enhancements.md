@@ -321,8 +321,8 @@ All derived outputs identify source frame hashes and processing parameters. Raw 
 
 | Lane | Milestone | Status | Rewards |
 |---|---|---|---|
-| WT1 | 1.1 Visual correctness and accessibility | Not started | 0/8 |
-| WT1 | 1.2 Search, status, and responsive polish | Not started | 0/8 |
+| WT1 | 1.1 Visual correctness and accessibility | Complete | 8/8 |
+| WT1 | 1.2 Search, status, and responsive polish | Complete | 8/8 |
 | WT2 | 2.1 Bounded-memory playback engine | Not started | 0/8 |
 | WT2 | 2.2 Time-aware controls and playback QA | Not started | 0/7 |
 | WT3 | 3.1 PNG8 WMS and frame codecs | Not started | 0/9 |
@@ -346,14 +346,14 @@ All derived outputs identify source frame hashes and processing parameters. Raw 
 
 **Rewards**
 
-- [ ] A global hidden rule prevents hidden HUD, image, link, and button elements from rendering.
-- [ ] The selected-radar card no longer shares an unscoped `.selected` class with the legend dot.
-- [ ] The selected legend marker renders as a circular dot between 8px and 16px at desktop and mobile widths.
-- [ ] Playback HUD is absent before playback and can still be displayed when its `hidden` property is removed.
-- [ ] Every range input has an accessible label, including the frame scrubber.
-- [ ] Action and export messages use an appropriate `aria-live` region.
-- [ ] Buttons, links, inputs, and map controls have visible `:focus-visible` styling.
-- [ ] Existing DOM IDs in the frozen UI contract remain present exactly once.
+- [x] A global hidden rule prevents hidden HUD, image, link, and button elements from rendering.
+- [x] The selected-radar card no longer shares an unscoped `.selected` class with the legend dot.
+- [x] The selected legend marker renders as a circular dot between 8px and 16px at desktop and mobile widths.
+- [x] Playback HUD is absent before playback and can still be displayed when its `hidden` property is removed.
+- [x] Every range input has an accessible label, including the frame scrubber.
+- [x] Action and export messages use an appropriate `aria-live` region.
+- [x] Buttons, links, inputs, and map controls have visible `:focus-visible` styling.
+- [x] Existing DOM IDs in the frozen UI contract remain present exactly once.
 
 **Verification**
 
@@ -379,7 +379,11 @@ Visual checks at 1280×720 and 390×844:
 **Evidence**
 
 ```text
-Pending.
+Commit(s): `104b3ac`, `0a94435`
+Commands: `python -m pytest tests/test_ui_contract.py -q`; `python -m pytest -q`; `git diff --check`; Playwright at 1280x720 and 390x844
+Result: 6 focused UI tests passed; full suite 17 passed; hidden HUD was absent before playback and computed `display:flex` after removing `hidden`; selected marker computed `border-radius:50%`; all frozen IDs resolved exactly once; keyboard focus produced a 3px solid outline.
+Artifacts: `docs/screenshots/enhancements-ui-1280.png`, `docs/screenshots/enhancements-ui-390.png`
+Caveats: Leaflet and basemap remain remote dependencies; fonts now use a local system fallback.
 ```
 
 ### Milestone 1.2 — Search, status, and responsive polish
@@ -388,14 +392,14 @@ Pending.
 
 **Rewards**
 
-- [ ] Radar search, supported-only, and cached-only controls exist with the frozen IDs.
-- [ ] Status has distinct active and cached containers plus a compact summary.
-- [ ] Reflectivity legend includes units and space for the active product palette.
-- [ ] Timezone mode, playback speed, and time-mode controls exist with clear labels.
-- [ ] Map legend can be collapsed on narrow screens.
-- [ ] At 390px width there is no horizontal page overflow.
-- [ ] Selected radar and archive start/stop controls remain reachable without scrolling through cached status cards.
-- [ ] The interface still presents correctly without remote font downloads.
+- [x] Radar search, supported-only, and cached-only controls exist with the frozen IDs.
+- [x] Status has distinct active and cached containers plus a compact summary.
+- [x] Reflectivity legend includes units and space for the active product palette.
+- [x] Timezone mode, playback speed, and time-mode controls exist with clear labels.
+- [x] Map legend can be collapsed on narrow screens.
+- [x] At 390px width there is no horizontal page overflow.
+- [x] Selected radar and archive start/stop controls remain reachable without scrolling through cached status cards.
+- [x] The interface still presents correctly without remote font downloads.
 
 **Verification**
 
@@ -416,7 +420,11 @@ legend does not obscure primary map controls
 **Evidence**
 
 ```text
-Pending.
+Commit(s): `104b3ac`, `0a94435`
+Commands: `python -m pytest tests/test_ui_contract.py -q`; `python -m pytest -q`; Playwright browser assertions at 1280x720, 900x700, and 390x844
+Result: focused 6 passed; full suite 17 passed; `scrollWidth === innerWidth` at all three sizes (1280, 900, 390); all frozen and enhancement IDs resolved once; selected KTBW controls became reachable/enabled after marker selection at 390px; legend collapsed on 900px/390px and expanded on desktop; no console errors after adding the local data-URI favicon.
+Artifacts: `docs/screenshots/enhancements-ui-1280.png`, `docs/screenshots/enhancements-ui-900.png`, `docs/screenshots/enhancements-ui-390.png`
+Caveats: Search/filter controls are intentionally presentational; WT7 must connect them to marker visibility and status partitioning without editing this lane.
 ```
 
 ---
