@@ -9,8 +9,9 @@
     overlay: null,
     overlayFrames: [],
     overlayIndex: 0,
-    overlayTimer: null,
     overlayPlaying: false,
+    playback: null,
+    playbackMode: "uniform",
     lastExportUrl: null,
   };
 
@@ -146,7 +147,7 @@
 
   async function loadFrames(radarId) {
     try {
-      const frames = await fetchJSON(`/api/cache/${radarId}/frames`);
+      const frames = await fetchJSON(`/api/cache/${radarId}/frames?limit=500`);
       state.frames = frames;
       if (!frames.length) {
         clearPreview();
@@ -170,7 +171,7 @@
     const frame = state.frames[index];
     if (!frame || !state.selected) return;
     el.previewImg.hidden = false;
-    el.previewImg.src = `/api/cache/${state.selected.id}/frame/${encodeURIComponent(frame.filename)}`;
+    el.previewImg.src = frame.preview_url || frame.url || `/api/cache/${state.selected.id}/frame/${encodeURIComponent(frame.filename)}`;
     el.scrubLabel.textContent = frame.utc;
   }
 
@@ -186,17 +187,63 @@
     return data;
   }
 
-  function stopOverlayTimer() {
-    if (state.overlayTimer) {
-      clearInterval(state.overlayTimer);
-      state.overlayTimer = null;
+  function createFallbackPlayback(options = {}) {
+    let frames = [];
+    let index = 0;
+    let timer = null;
+    let fps = 6;
+
+    const emit = () => {
+      if (frames[index] && typeof options.onFrame === "function") options.onFrame(frames[index], index, frames);
+    };
+    const stop = () => {
+      if (timer) window.clearInterval(timer);
+      timer = null;
+    };
+    return {
+      load(nextFrames, loadOptions = {}) {
+        stop();
+        frames = Array.isArray(nextFrames) ? nextFrames : [];
+        index = Math.max(0, Math.min(Number(loadOptions.initialIndex) || 0, frames.length - 1));
+        emit();
+      },
+      play() {
+        stop();
+        if (frames.length < 2) return;
+        timer = window.setInterval(() => {
+          index = (index + 1) % frames.length;
+          emit();
+        }, Math.max(80, Math.round(1000 / fps)));
+      },
+      pause() { stop(); },
+      seek(nextIndex) {
+        if (!frames.length) return;
+        index = Math.max(0, Math.min(Number(nextIndex) || 0, frames.length - 1));
+        emit();
+      },
+      setSpeed(nextFps) { fps = Math.min(Math.max(Number(nextFps) || 6, 1), 30); },
+      destroy() { stop(); frames = []; },
+      getState() { return { index, playing: Boolean(timer), fps, count: frames.length }; },
+    };
+  }
+
+  function createPlayback(options = {}) {
+    if (window.RadarVaultPlayback && typeof window.RadarVaultPlayback.create === "function") {
+      return window.RadarVaultPlayback.create(options);
     }
+    return createFallbackPlayback(options);
+  }
+
+  function stopOverlayPlayback() {
+    if (state.playback) state.playback.pause();
     state.overlayPlaying = false;
     if (el.hudPause) el.hudPause.textContent = "Play";
   }
 
   function clearOverlay() {
-    stopOverlayTimer();
+    stopOverlayPlayback();
+    if (state.playback) state.playback.destroy();
+    state.playback = null;
     if (state.overlay) {
       state.map.removeLayer(state.overlay);
       state.overlay = null;
@@ -212,7 +259,7 @@
     const i = ((index % state.overlayFrames.length) + state.overlayFrames.length) % state.overlayFrames.length;
     state.overlayIndex = i;
     const frame = state.overlayFrames[i];
-    const url = frame.url;
+    const url = frame.url || frame.preview_url;
     const img = state.overlay.getElement && state.overlay.getElement();
     if (img) {
       img.src = url;
@@ -223,7 +270,7 @@
   }
 
   function startOverlayPlayback(fps) {
-    stopOverlayTimer();
+    stopOverlayPlayback();
     if (state.overlayFrames.length < 2) {
       state.overlayPlaying = false;
       el.hudPause.textContent = "Play";
@@ -232,21 +279,13 @@
         : "—";
       return;
     }
-    // Cap overlay FPS — 2048px PNGs are heavy to swap quickly.
-    const rate = Math.min(Math.max(Number(fps) || 6, 1), 12);
-    const interval = Math.max(80, Math.round(1000 / rate));
+    const rate = Math.min(Math.max(Number(fps) || 6, 1), 30);
+    if (state.playback) {
+      state.playback.setSpeed(rate);
+      state.playback.play();
+    }
     state.overlayPlaying = true;
     el.hudPause.textContent = "Pause";
-    state.overlayTimer = setInterval(() => {
-      setOverlayFrame(state.overlayIndex + 1);
-    }, interval);
-  }
-
-  function preloadFrames(frames) {
-    frames.slice(0, 40).forEach((f) => {
-      const img = new Image();
-      img.src = f.url;
-    });
   }
 
   async function playOverlayFromCache(fps) {
@@ -255,7 +294,7 @@
     try {
       // Prefer all cached frames for overlay so a tight/wrong time window
       // cannot silently empty the playlist. Export still uses the form range.
-      let data = await fetchJSON(`/api/cache/${state.selected.id}/overlay`);
+      let data = await fetchJSON(`/api/cache/${state.selected.id}/overlay?limit=500`);
       if (!data.frames.length) {
         throw new Error("No cached frames yet — start archiving first");
       }
@@ -272,9 +311,8 @@
 
       const opacity = Number(el.overlayOpacity.value) / 100;
       state.overlayFrames = data.frames;
-      preloadFrames(data.frames);
 
-      state.overlay = L.imageOverlay(data.frames[0].url, bounds, {
+      state.overlay = L.imageOverlay(data.frames[0].url || data.frames[0].preview_url, bounds, {
         opacity,
         interactive: false,
         className: "radar-overlay",
@@ -284,7 +322,10 @@
       state.map.fitBounds(bounds, { padding: [24, 24], maxZoom: 9 });
       el.overlayHud.hidden = false;
       el.btnOverlayStop.disabled = false;
-      setOverlayFrame(0);
+      state.playback = createPlayback({
+        onFrame: (_frame, index) => setOverlayFrame(index),
+      });
+      state.playback.load(data.frames, { initialIndex: 0 });
       startOverlayPlayback(fps || Number(el.exportFps.value) || 6);
       showMsg(
         el.actionMsg,
@@ -315,12 +356,8 @@
         })
         .join("");
 
-      if (state.selected) {
-        const live = status.radars[state.selected.id];
-        if (live && live.running) {
-          loadFrames(state.selected.id);
-        }
-      }
+      // Frame lists are loaded on radar selection and after explicit actions;
+      // status polling must not repeatedly scan an archive directory.
     } catch (err) {
       el.statusList.textContent = `Status error: ${err.message}`;
     }
@@ -398,7 +435,7 @@
 
   el.hudPause.addEventListener("click", () => {
     if (state.overlayPlaying) {
-      stopOverlayTimer();
+      stopOverlayPlayback();
     } else {
       startOverlayPlayback(Number(el.exportFps.value) || 6);
     }
@@ -412,7 +449,7 @@
     el.btnOverlayExport.hidden = true;
     showMsg(el.exportMsg, "Generating video…");
     try {
-      const result = await fetchJSON("/api/videos/export", {
+      const result = await fetchJSON("/api/videos/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -422,12 +459,19 @@
           fps: Number(el.exportFps.value) || 15,
         }),
       });
-      showMsg(el.exportMsg, `Complete · ${(result.bytes / (1024 * 1024)).toFixed(2)} MB`);
+      let status = result;
+      while (status.state === "queued" || status.state === "running") {
+        showMsg(el.exportMsg, `${status.message || "Exporting"} · ${Math.round((status.progress || 0) * 100)}%`);
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+        status = await fetchJSON(`/api/videos/jobs/${encodeURIComponent(result.job_id)}`);
+      }
+      if (status.state !== "complete") throw new Error(status.error || status.message || "Video export failed");
+      showMsg(el.exportMsg, `Complete · ${status.filename}`);
       el.exportLink.hidden = false;
-      el.exportLink.href = result.download_url;
-      el.exportLink.textContent = `Download ${result.filename}`;
+      el.exportLink.href = status.download_url;
+      el.exportLink.textContent = `Download ${status.filename}`;
       el.btnOverlayExport.hidden = false;
-      state.lastExportUrl = result.download_url;
+      state.lastExportUrl = status.download_url;
     } catch (err) {
       showMsg(el.exportMsg, err.message, true);
     } finally {
