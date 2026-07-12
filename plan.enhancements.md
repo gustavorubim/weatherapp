@@ -437,14 +437,14 @@ Caveats: Search/filter controls are intentionally presentational; WT7 must conne
 
 **Rewards**
 
-- [ ] `window.RadarVaultPlayback.create(options)` implements the frozen playback API.
-- [ ] Playback timing uses `requestAnimationFrame` or an equivalent render-synchronized scheduler.
-- [ ] No code path preloads more than four frame decodes concurrently.
-- [ ] The controller prefers `preview_url` and falls back to `url`.
-- [ ] A frame is decoded before it becomes the displayed overlay.
-- [ ] `pause`, `seek`, `setSpeed`, and `destroy` cancel obsolete scheduled work.
-- [ ] Failed preview loads fall back or report an error without permanently stopping the controller.
-- [ ] Destroying a controller releases references, timers, and object URLs it created.
+- [x] `window.RadarVaultPlayback.create(options)` implements the frozen playback API.
+- [x] Playback timing uses `requestAnimationFrame` or an equivalent render-synchronized scheduler.
+- [x] No code path preloads more than four frame decodes concurrently.
+- [x] The controller prefers `preview_url` and falls back to `url`.
+- [x] A frame is decoded before it becomes the displayed overlay.
+- [x] `pause`, `seek`, `setSpeed`, and `destroy` cancel obsolete scheduled work.
+- [x] Failed preview loads fall back or report an error without permanently stopping the controller.
+- [x] Destroying a controller releases references, timers, and object URLs it created.
 
 **Verification**
 
@@ -465,7 +465,11 @@ Assert no scheduled callbacks continue after destroy.
 **Evidence**
 
 ```text
-Pending.
+Commit(s): `d42ba0c`, `24d5c47`, and the documentation/evidence commit containing this update.
+Commands: `node --check static/playback.js`; `python -m pytest tests/test_playback_contract.py -q`.
+Result: Contract harness covers the frozen API, rAF scheduling, 1,000-frame bounded decode/cache behavior, preview fallback, render-after-decode, cancellation, and destroy cleanup; all checks pass.
+Artifacts: `static/playback.js`, `static/playback.css`, `tests/test_playback_contract.py`, `docs/playback-engine.md`.
+Caveats: WT7 must load the module and replace the legacy app overlay timer during integration.
 ```
 
 ### Milestone 2.2 — Time-aware controls and playback QA
@@ -474,13 +478,13 @@ Pending.
 
 **Rewards**
 
-- [ ] Uniform mode assigns equal screen duration to every frame.
-- [ ] Observed mode derives duration from `observed_at`, falling back to `utc`.
-- [ ] Large acquisition gaps are capped and surfaced rather than producing a multi-minute freeze.
-- [ ] Single-frame sequences display correctly without entering a false playing state.
-- [ ] Playback state reports index, frame count, playing flag, speed, time mode, and last error.
-- [ ] Rapid seek operations cannot display an older decode after the most recent requested frame.
-- [ ] Reduced-motion preference disables optional crossfades or animated decoration.
+- [x] Uniform mode assigns equal screen duration to every frame.
+- [x] Observed mode derives duration from `observed_at`, falling back to `utc`.
+- [x] Large acquisition gaps are capped and surfaced rather than producing a multi-minute freeze.
+- [x] Single-frame sequences display correctly without entering a false playing state.
+- [x] Playback state reports index, frame count, playing flag, speed, time mode, and last error.
+- [x] Rapid seek operations cannot display an older decode after the most recent requested frame.
+- [x] Reduced-motion preference disables optional crossfades or animated decoration.
 
 **Verification**
 
@@ -500,7 +504,11 @@ No more than 4 simultaneous frame loads.
 **Evidence**
 
 ```text
-Pending.
+Commit(s): `d42ba0c`, `24d5c47`, and the documentation/evidence commit containing this update.
+Commands: `node --check static/playback.js`; `python -m pytest tests/test_playback_contract.py -q`.
+Result: Deterministic harness verifies uniform and observed timing, a capped ten-minute gap, one-frame behavior, state reporting, rapid seek generation cancellation, and reduced-motion metadata; all checks pass. Full suite: 14 passed.
+Artifacts: `docs/playback-engine.md` records timing semantics, cap behavior, and WT7 integration notes.
+Caveats: Observed mode uses speed=6 as its real-time baseline; WT7 should expose this as a labeled time mode/speed control.
 ```
 
 ---
