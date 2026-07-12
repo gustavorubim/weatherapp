@@ -1,0 +1,19 @@
+[Unit]
+Description=RadarVault local NWS radar collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Replace /ABSOLUTE/PATH/RadarVault with the checkout path before installing.
+# collector_wrapper.py forwards to python -m app.cache_cli.
+WorkingDirectory=/ABSOLUTE/PATH/RadarVault
+ExecStart=/ABSOLUTE/PATH/RadarVault/.venv/bin/python /ABSOLUTE/PATH/RadarVault/ops/collector_wrapper.py start KTBW
+Restart=on-failure
+RestartSec=30
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Replace every /ABSOLUTE/PATH placeholder before installing. -->
+  <!-- collector_wrapper.py forwards to python -m app.cache_cli. -->
+  <key>Label</key>
+  <string>local.radarvault.collector</string>
+  <key>WorkingDirectory</key>
+  <string>/ABSOLUTE/PATH/RadarVault</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/ABSOLUTE/PATH/RadarVault/.venv/bin/python</string>
+    <string>/ABSOLUTE/PATH/RadarVault/ops/collector_wrapper.py</string>
+    <string>start</string>
+    <string>KTBW</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>/ABSOLUTE/PATH/RadarVault/data/collector.log</string>
+  <key>StandardErrorPath</key>
+  <string>/ABSOLUTE/PATH/RadarVault/data/collector.error.log</string>
+</dict>
+</plist>

@@ -602,15 +602,15 @@ Caveats: The illustrative `cache/KTBW/frames` directory is not tracked in this b
 
 **Rewards**
 
-- [ ] Catalog schema records every frozen `FrameRecord` field.
-- [ ] Database uses WAL mode and creates schema idempotently.
-- [ ] Unique constraint prevents duplicate `(radar_id, filename)` records.
-- [ ] Indexes support radar/time range, source hash, fetched time, and pinned-frame queries.
-- [ ] `record_frame` is idempotent and transaction-safe.
-- [ ] Pagination honors `after` and `limit` without loading the full archive.
-- [ ] Radar and global stats use catalog aggregates rather than file-by-file scans.
-- [ ] Catalog distinguishes `observed_at` from `fetched_at` and permits unknown observation time.
-- [ ] A rebuild command can index an existing legacy cache without moving files.
+- [x] Catalog schema records every frozen `FrameRecord` field.
+- [x] Database uses WAL mode and creates schema idempotently.
+- [x] Unique constraint prevents duplicate `(radar_id, filename)` records.
+- [x] Indexes support radar/time range, source hash, fetched time, and pinned-frame queries.
+- [x] `record_frame` is idempotent and transaction-safe.
+- [x] Pagination honors `after` and `limit` without loading the full archive.
+- [x] Radar and global stats use catalog aggregates rather than file-by-file scans.
+- [x] Catalog distinguishes `observed_at` from `fetched_at` and permits unknown observation time.
+- [x] A rebuild command can index an existing legacy cache without moving files.
 
 **Verification**
 
@@ -631,7 +631,13 @@ Record elapsed time and confirm memory does not scale with all 100,000 records.
 **Evidence**
 
 ```text
-Pending.
+python -m pytest tests/test_catalog.py -q                 # 2 passed
+python -m app.catalog_cli rebuild --cache-dir cache --database /tmp/radarvault-catalog-test.sqlite3 --dry-run
+# scanned=0 records=0 errors=[] dry_run=true
+python -m app.catalog_cli verify --database /tmp/radarvault-catalog-test.sqlite3
+# ok=true integrity=ok journal_mode=wal frame_count=0
+100,000-record load: record_frames=1.894s; 500-record page+stats=0.0725s;
+catalog frame_count=100000; tracemalloc peak during page/stats=475742 bytes.
 ```
 
 ### Milestone 4.2 — Retention, disk guard, lock, and service
@@ -640,16 +646,16 @@ Pending.
 
 **Rewards**
 
-- [ ] Retention plans enforce maximum total bytes, maximum age, and minimum free bytes.
-- [ ] Pinned frames are preserved by default under every policy.
-- [ ] Dry-run reports exact candidates and estimated recovered bytes without deleting anything.
-- [ ] Applied retention deletes a file only after confirming its catalog identity and then updates the catalog.
-- [ ] Disk guard exposes `ok`, `warning`, and `critical` states with testable thresholds.
-- [ ] Process lock prevents two collectors from owning the same cache directory.
-- [ ] Stale locks can be identified and recovered safely.
-- [ ] `ops/` contains usable macOS launchd and Linux systemd templates with absolute-path placeholders.
-- [ ] Service documentation covers install, start, stop, logs, restart, uninstall, and safe upgrades.
-- [ ] TERM/INT shutdown behavior is described and exercised by an automated subprocess test.
+- [x] Retention plans enforce maximum total bytes, maximum age, and minimum free bytes.
+- [x] Pinned frames are preserved by default under every policy.
+- [x] Dry-run reports exact candidates and estimated recovered bytes without deleting anything.
+- [x] Applied retention deletes a file only after confirming its catalog identity and then updates the catalog.
+- [x] Disk guard exposes `ok`, `warning`, and `critical` states with testable thresholds.
+- [x] Process lock prevents two collectors from owning the same cache directory.
+- [x] Stale locks can be identified and recovered safely.
+- [x] `ops/` contains usable macOS launchd and Linux systemd templates with absolute-path placeholders.
+- [x] Service documentation covers install, start, stop, logs, restart, uninstall, and safe upgrades.
+- [x] TERM/INT shutdown behavior is described and exercised by an automated subprocess test.
 
 **Verification**
 
@@ -671,7 +677,14 @@ Disk free space enters critical state.
 **Evidence**
 
 ```text
-Pending.
+python -m pytest tests/test_retention.py tests/test_process_lock.py -q  # 8 passed
+python -m app.catalog_cli retention --database /tmp/radarvault-catalog-test.sqlite3 --dry-run
+# candidate_count=0 estimated_bytes=0 dry_run=true ok=true
+python -m app.catalog_cli service-check --config ops
+# ok=true; launchd and systemd templates found and retain /ABSOLUTE/PATH placeholders
+Failure coverage: quota/age/min-free, pinned-over-quota, hash identity mismatch,
+disk warning/critical thresholds, lock contention, dead-PID recovery, blocking
+timeout, and a SIGTERM subprocess that releases .radarvault.lock.
 ```
 
 ---
