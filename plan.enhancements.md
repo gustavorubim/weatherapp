@@ -2,7 +2,7 @@
 
 **Parallel-safe polish, playback, storage, operations, video, and analysis roadmap**
 
-Status: **planned — no implementation rewards claimed**
+Status: **WT1–WT4 merged and validated; WT5–WT7 present on main; final cross-lane gates pending**
 
 This plan converts the v1 review into six independent implementation lanes plus one integration lane. The six implementation branches must be created from the same base commit and may run concurrently without consuming one another's work. The integration lane starts only after the implementation branches have publishable commits.
 
@@ -323,18 +323,18 @@ All derived outputs identify source frame hashes and processing parameters. Raw 
 |---|---|---|---|
 | WT1 | 1.1 Visual correctness and accessibility | Complete | 8/8 |
 | WT1 | 1.2 Search, status, and responsive polish | Complete | 8/8 |
-| WT2 | 2.1 Bounded-memory playback engine | Not started | 0/8 |
-| WT2 | 2.2 Time-aware controls and playback QA | Not started | 0/7 |
-| WT3 | 3.1 PNG8 WMS and frame codecs | Not started | 0/9 |
-| WT3 | 3.2 Safe preview and archive conversion | Not started | 0/7 |
-| WT4 | 4.1 SQLite catalog and provenance | Not started | 0/9 |
-| WT4 | 4.2 Retention, disk guard, lock, and service | Not started | 0/10 |
+| WT2 | 2.1 Bounded-memory playback engine | Complete | 8/8 |
+| WT2 | 2.2 Time-aware controls and playback QA | Complete | 7/7 |
+| WT3 | 3.1 PNG8 WMS and frame codecs | Complete | 9/9 |
+| WT3 | 3.2 Safe preview and archive conversion | Complete | 7/7 |
+| WT4 | 4.1 SQLite catalog and provenance | Complete | 9/9 |
+| WT4 | 4.2 Retention, disk guard, lock, and service | Complete | 10/10 |
 | WT5 | 5.1 Dimension-safe efficient export | ✅ | 9/9 |
 | WT5 | 5.2 Background video jobs | ✅ | 8/8 |
 | WT6 | 6.1 Reflectivity, clutter, and cell tracking | Complete | 9/9 |
 | WT6 | 6.2 Motion nowcast and honest evaluation | Complete | 9/9 |
-| WT7 | 7.1 Merge and application wiring | Shared wiring implemented; lane merges pending | 0/10 |
-| WT7 | 7.2 Migration, performance, and final release | Blocked on 7.1 | 0/13 |
+| WT7 | 7.1 Merge and application wiring | Shared wiring implemented; WT1–WT4 merged; final wiring gates pending | 0/10 |
+| WT7 | 7.2 Migration, performance, and final release | Pending final dependency/runtime validation | 0/13 |
 
 ---
 
@@ -383,7 +383,7 @@ WT7 shared-file bring-up is implemented on `gvr/enhancements-integration`.
 Commands: `pytest -q`; `python -m compileall app`; `node --check static/app.js`; `python -m app.cache_cli status`; `git diff --check`.
 Result: 14 passed; Python compile passed; JavaScript syntax check passed; cache status returned an empty healthy catalog; diff check passed.
 Artifacts: bounded frame/overlay API responses include `preview_url`, `observed_at`, `fetched_at`, hashes, dimensions, and media type; storage writes use atomic replace; async video jobs expose submit/status/cancel; retention and analysis endpoints are safe compatibility fallbacks until WT4–WT6 modules merge.
-Caveats: WT1–WT6 branches currently contain only the shared base commit, so no lane commits were available to merge and the WT7 reward checkboxes remain intentionally unchecked.
+Caveats: WT1–WT4 are now merged into `main`; WT5–WT7 were merged previously on this branch. WT7 reward checkboxes remain intentionally unchecked until the final cross-lane gates and runtime dependencies are validated together.
 ```
 
 ### Milestone 1.2 — Search, status, and responsive polish
