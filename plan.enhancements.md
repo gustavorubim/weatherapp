@@ -505,15 +505,15 @@ Pending.
 
 **Rewards**
 
-- [ ] WMS requests can ask for `image/png8` without changing the default public function signatures.
-- [ ] A non-PNG or rejected PNG8 response automatically retries once as `image/png`.
-- [ ] PNG validation accepts indexed and RGBA PNGs while rejecting error documents.
-- [ ] `app.frame_codec` implements all frozen codec functions and `EncodedFrame` fields.
-- [ ] `png`, `png8`, and `webp-lossless` archive modes decode to the original dimensions.
-- [ ] Lossless WebP preserves all visible RGBA pixel values in the fixture corpus.
-- [ ] Source and stored SHA-256 values are calculated separately and tested.
-- [ ] Preview encoding respects `max_dimension`, preserves aspect ratio, and retains transparency.
-- [ ] Synthetic radar fixtures demonstrate at least 40% size reduction for PNG8 or WebP relative to RGBA PNG.
+- [x] WMS requests can ask for `image/png8` without changing the default public function signatures.
+- [x] A non-PNG or rejected PNG8 response automatically retries once as `image/png`.
+- [x] PNG validation accepts indexed and RGBA PNGs while rejecting error documents.
+- [x] `app.frame_codec` implements all frozen codec functions and `EncodedFrame` fields.
+- [x] `png`, `png8`, and `webp-lossless` archive modes decode to the original dimensions.
+- [x] Lossless WebP preserves all visible RGBA pixel values in the fixture corpus.
+- [x] Source and stored SHA-256 values are calculated separately and tested.
+- [x] Preview encoding respects `max_dimension`, preserves aspect ratio, and retains transparency.
+- [x] Synthetic radar fixtures demonstrate at least 40% size reduction for PNG8 or WebP relative to RGBA PNG.
 
 **Verification**
 
@@ -533,7 +533,11 @@ Do not fail the automated suite because weather content changed.
 **Evidence**
 
 ```text
-Pending.
+Commit(s): 564c0d2
+Commands: pytest -q tests/test_frame_codec.py tests/test_wms_png8.py tests/test_wms_helpers.py; pytest -q; git diff --check
+Result: 15 codec/WMS tests and 22 full-suite tests passed. Deterministic 512x512 RGBA fixture reduced 92.2% with lossless WebP (2,139 -> 166 bytes); a seeded random RGBA fixture reduced 75.2% with PNG8 (1,050,594 -> 260,162 bytes). PNG8 fallback test observed two requests with formats image/png8 then image/png. Indexed transparency, dimensions, visible RGBA values, and separate source/stored hashes are covered.
+Artifacts: tests/test_wms_png8.py, app/frame_codec.py, docs/storage-codecs.md
+Caveats: Live NOAA comparison is optional and was not made a release gate because weather content and product support vary.
 ```
 
 ### Milestone 3.2 — Safe preview and archive conversion
@@ -542,13 +546,13 @@ Pending.
 
 **Rewards**
 
-- [ ] CLI supports `benchmark`, `generate-previews`, and `convert` subcommands.
-- [ ] Mutating commands default to dry-run unless `--apply` is passed.
-- [ ] Conversion writes a temporary file, verifies it, atomically renames it, and only then considers source deletion.
-- [ ] Source deletion requires an additional explicit `--delete-source` flag.
-- [ ] Re-running preview generation is idempotent.
-- [ ] A conversion manifest records source path, output path, hashes, dimensions, and byte savings.
-- [ ] Failure injection leaves the original source readable and reports the incomplete output.
+- [x] CLI supports `benchmark`, `generate-previews`, and `convert` subcommands.
+- [x] Mutating commands default to dry-run unless `--apply` is passed.
+- [x] Conversion writes a temporary file, verifies it, atomically renames it, and only then considers source deletion.
+- [x] Source deletion requires an additional explicit `--delete-source` flag.
+- [x] Re-running preview generation is idempotent.
+- [x] A conversion manifest records source path, output path, hashes, dimensions, and byte savings.
+- [x] Failure injection leaves the original source readable and reports the incomplete output.
 
 **Verification**
 
@@ -565,7 +569,11 @@ The last command must show that verification did not modify tracked files.
 **Evidence**
 
 ```text
-Pending.
+Commit(s): 3efe81b
+Commands: pytest -q; python -m py_compile app/*.py tests/test_frame_codec.py tests/test_wms_png8.py; git diff --check; python -m app.compression_cli benchmark <fixture>/frames --limit 2 --format webp-lossless; python -m app.compression_cli generate-previews <fixture>/frames --limit 2 --dry-run; python -m app.compression_cli convert <fixture>/frames --format webp-lossless --apply --manifest <fixture>/convert-manifest.json
+Result: 22 full-suite tests passed. Dry-run preview and conversion emitted JSON without creating outputs; applied conversion atomically wrote verified WebP files and a manifest with paths, source/stored hashes, dimensions, and byte savings. Failure-injection test confirmed the source remained byte-for-byte readable. Repeated preview application produced identical bytes.
+Artifacts: app/compression_cli.py, tests/test_frame_codec.py, docs/storage-codecs.md
+Caveats: The illustrative `cache/KTBW/frames` directory is not tracked in this base checkout; CLI measurements used deterministic temporary fixtures instead.
 ```
 
 ---
