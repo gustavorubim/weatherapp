@@ -329,8 +329,8 @@ All derived outputs identify source frame hashes and processing parameters. Raw 
 | WT3 | 3.2 Safe preview and archive conversion | Not started | 0/7 |
 | WT4 | 4.1 SQLite catalog and provenance | Not started | 0/9 |
 | WT4 | 4.2 Retention, disk guard, lock, and service | Not started | 0/10 |
-| WT5 | 5.1 Dimension-safe efficient export | Not started | 0/9 |
-| WT5 | 5.2 Background video jobs | Not started | 0/8 |
+| WT5 | 5.1 Dimension-safe efficient export | ✅ | 9/9 |
+| WT5 | 5.2 Background video jobs | ✅ | 8/8 |
 | WT6 | 6.1 Reflectivity, clutter, and cell tracking | Complete | 9/9 |
 | WT6 | 6.2 Motion nowcast and honest evaluation | Complete | 9/9 |
 | WT7 | 7.1 Merge and application wiring | Shared wiring implemented; lane merges pending | 0/10 |
@@ -664,15 +664,15 @@ Pending.
 
 **Rewards**
 
-- [ ] Existing `export_video` callers remain compatible.
-- [ ] Export inspects all frame dimensions before ffmpeg starts.
-- [ ] `dimension_policy="error"` reports every detected dimension group clearly.
-- [ ] `dimension_policy="normalize"` produces the explicitly requested or documented target size.
-- [ ] Export uses a concat manifest, hard links, or symlinks rather than byte-for-byte staging copies.
-- [ ] Temporary export overhead is measured and remains below 5% of selected source bytes, excluding final video output.
-- [ ] Archive, balanced, and small presets are documented and produce valid H.264 MP4s.
-- [ ] Output names include enough range precision or a content-derived suffix to avoid unintended overwrites.
-- [ ] Optional timestamp overlay uses actual observation time when available and labels fetch time when it is not.
+- [x] Existing `export_video` callers remain compatible.
+- [x] Export inspects all frame dimensions before ffmpeg starts.
+- [x] `dimension_policy="error"` reports every detected dimension group clearly.
+- [x] `dimension_policy="normalize"` produces the explicitly requested or documented target size.
+- [x] Export uses a concat manifest, hard links, or symlinks rather than byte-for-byte staging copies.
+- [x] Temporary export overhead is measured and remains below 5% of selected source bytes, excluding final video output.
+- [x] Archive, balanced, and small presets are documented and produce valid H.264 MP4s.
+- [x] Output names include enough range precision or a content-derived suffix to avoid unintended overwrites.
+- [x] Optional timestamp overlay uses actual observation time when available and labels fetch time when it is not.
 
 **Verification**
 
@@ -687,7 +687,16 @@ The current mixed 1024/2048 KTBW fixture must either fail clearly in error mode 
 **Evidence**
 
 ```text
-Pending.
+Commit(s): 5a16a69
+Commands: pytest tests/test_video_export.py tests/test_video_jobs.py -q
+  python -m app.video_cli export KTBW --dimension-policy error --out /tmp/radarvault-test.mp4
+  python -m app.video_cli export KTBW --dimension-policy normalize --target-width 2048 --target-height 2048 --out /tmp/radarvault-test-norm.mp4
+  ffprobe ... /tmp/radarvault-test-norm.mp4
+Result: 14 passed. Mixed 1024/2048 KTBW fails clearly in error mode (lists both groups).
+  normalize → h264 2048x2048, temp_overhead_bytes=0, source_bytes≈13.3MB.
+Artifacts: docs/video-export.md, /tmp/radarvault-test-norm.mp4
+Caveats: timestamp overlay burns UTC range label via drawtext (requires ffmpeg drawtext support).
+Integration notes: WT7 should wire POST /api/videos/jobs + status/cancel; do not keep request open for full encode.
 ```
 
 ### Milestone 5.2 — Background video jobs
@@ -696,14 +705,14 @@ Pending.
 
 **Rewards**
 
-- [ ] `VideoJobManager` implements the frozen states and methods.
-- [ ] Job IDs are collision-resistant and status objects are serializable.
-- [ ] Progress is monotonic from 0 through 1 for successful jobs.
-- [ ] Cancellation terminates ffmpeg, removes incomplete output, and reaches `cancelled`.
-- [ ] Failed jobs retain a concise user-facing error and a detailed log tail.
-- [ ] Concurrent job limit is configurable and defaults to one.
-- [ ] A second request for the same completed export may reuse the verified output.
-- [ ] Job state cleanup has a bounded retention policy.
+- [x] `VideoJobManager` implements the frozen states and methods.
+- [x] Job IDs are collision-resistant and status objects are serializable.
+- [x] Progress is monotonic from 0 through 1 for successful jobs.
+- [x] Cancellation terminates ffmpeg, removes incomplete output, and reaches `cancelled`.
+- [x] Failed jobs retain a concise user-facing error and a detailed log tail.
+- [x] Concurrent job limit is configurable and defaults to one.
+- [x] A second request for the same completed export may reuse the verified output.
+- [x] Job state cleanup has a bounded retention policy.
 
 **Verification**
 
@@ -716,7 +725,11 @@ Tests must cover successful completion, ffmpeg failure, cancellation, duplicate 
 **Evidence**
 
 ```text
-Pending.
+Commit(s): 5a16a69
+Commands: pytest tests/test_video_jobs.py tests/test_video_export.py -q
+Result: 14 passed covering complete/fail/cancel/duplicate/concurrency/cleanup.
+Artifacts: app/video_jobs.py, docs/video-export.md
+Caveats: process-local only; WT7 owns HTTP job endpoints.
 ```
 
 ---
