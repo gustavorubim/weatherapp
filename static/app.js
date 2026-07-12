@@ -12,6 +12,7 @@
     overlayPlaying: false,
     playback: null,
     playbackMode: "uniform",
+    statusByRadar: new Map(),
     lastExportUrl: null,
   };
 
@@ -41,6 +42,17 @@
     exportMsg: document.getElementById("export-msg"),
     exportLink: document.getElementById("export-link"),
     btnOverlayExport: document.getElementById("btn-overlay-export"),
+    radarSearch: document.getElementById("radar-search"),
+    filterSupported: document.getElementById("radar-filter-supported"),
+    filterCached: document.getElementById("radar-filter-cached"),
+    filterCount: document.getElementById("radar-filter-count"),
+    statusSummary: document.getElementById("status-summary"),
+    statusActive: document.getElementById("status-active"),
+    statusCached: document.getElementById("status-cached"),
+    statusCachedList: document.getElementById("status-cached-list"),
+    playbackSpeed: document.getElementById("playback-speed"),
+    playbackTimeMode: document.getElementById("playback-time-mode"),
+    timezoneMode: document.getElementById("timezone-mode"),
   };
 
   function showMsg(node, text, isError = false) {
@@ -87,6 +99,41 @@
   function utcInputToIso(value) {
     if (!value) return null;
     return value.length === 16 ? `${value}:00Z` : `${value}Z`;
+  }
+
+  function formatFrameTime(value) {
+    if (!value) return "—";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "short",
+      timeStyle: "medium",
+      timeZone: el.timezoneMode.value === "local" ? undefined : "UTC",
+    }).format(date) + (el.timezoneMode.value === "local" ? " local" : " UTC");
+  }
+
+  function setRadarVisibility(radar, visible) {
+    const marker = state.markers.get(radar.id);
+    if (!marker || !state.map) return;
+    if (visible && !state.map.hasLayer(marker)) marker.addTo(state.map);
+    if (!visible && state.map.hasLayer(marker)) state.map.removeLayer(marker);
+  }
+
+  function applyRadarFilters() {
+    const query = (el.radarSearch.value || "").trim().toLowerCase();
+    const supportedOnly = el.filterSupported.checked;
+    const cachedOnly = el.filterCached.checked;
+    let visibleCount = 0;
+    state.radars.forEach((radar) => {
+      const haystack = `${radar.id} ${radar.name || ""}`.toLowerCase();
+      const status = state.statusByRadar.get(radar.id);
+      const visible = (!query || haystack.includes(query))
+        && (!supportedOnly || canArchive(radar))
+        && (!cachedOnly || Boolean(status && Number(status.frame_count) > 0));
+      setRadarVisibility(radar, visible);
+      if (visible) visibleCount += 1;
+    });
+    el.filterCount.textContent = `${visibleCount} of ${state.radars.length} radars shown`;
   }
 
   function setExportWindowFromFrames(frames) {
@@ -172,7 +219,7 @@
     if (!frame || !state.selected) return;
     el.previewImg.hidden = false;
     el.previewImg.src = frame.preview_url || frame.url || `/api/cache/${state.selected.id}/frame/${encodeURIComponent(frame.filename)}`;
-    el.scrubLabel.textContent = frame.utc;
+    el.scrubLabel.textContent = formatFrameTime(frame.observed_at || frame.utc);
   }
 
   async function fetchJSON(url, options) {
@@ -187,51 +234,11 @@
     return data;
   }
 
-  function createFallbackPlayback(options = {}) {
-    let frames = [];
-    let index = 0;
-    let timer = null;
-    let fps = 6;
-
-    const emit = () => {
-      if (frames[index] && typeof options.onFrame === "function") options.onFrame(frames[index], index, frames);
-    };
-    const stop = () => {
-      if (timer) window.clearInterval(timer);
-      timer = null;
-    };
-    return {
-      load(nextFrames, loadOptions = {}) {
-        stop();
-        frames = Array.isArray(nextFrames) ? nextFrames : [];
-        index = Math.max(0, Math.min(Number(loadOptions.initialIndex) || 0, frames.length - 1));
-        emit();
-      },
-      play() {
-        stop();
-        if (frames.length < 2) return;
-        timer = window.setInterval(() => {
-          index = (index + 1) % frames.length;
-          emit();
-        }, Math.max(80, Math.round(1000 / fps)));
-      },
-      pause() { stop(); },
-      seek(nextIndex) {
-        if (!frames.length) return;
-        index = Math.max(0, Math.min(Number(nextIndex) || 0, frames.length - 1));
-        emit();
-      },
-      setSpeed(nextFps) { fps = Math.min(Math.max(Number(nextFps) || 6, 1), 30); },
-      destroy() { stop(); frames = []; },
-      getState() { return { index, playing: Boolean(timer), fps, count: frames.length }; },
-    };
-  }
-
   function createPlayback(options = {}) {
-    if (window.RadarVaultPlayback && typeof window.RadarVaultPlayback.create === "function") {
-      return window.RadarVaultPlayback.create(options);
+    if (!window.RadarVaultPlayback || typeof window.RadarVaultPlayback.create !== "function") {
+      throw new Error("RadarVaultPlayback failed to load");
     }
-    return createFallbackPlayback(options);
+    return window.RadarVaultPlayback.create(options);
   }
 
   function stopOverlayPlayback() {
@@ -259,23 +266,23 @@
     const i = ((index % state.overlayFrames.length) + state.overlayFrames.length) % state.overlayFrames.length;
     state.overlayIndex = i;
     const frame = state.overlayFrames[i];
-    const url = frame.url || frame.preview_url;
+    const url = frame.preview_url || frame.url;
     const img = state.overlay.getElement && state.overlay.getElement();
     if (img) {
       img.src = url;
     } else {
       state.overlay.setUrl(url);
     }
-    el.hudLabel.textContent = `${frame.utc} · ${i + 1}/${state.overlayFrames.length}`;
+    el.hudLabel.textContent = `${formatFrameTime(frame.observed_at || frame.utc)} · ${i + 1}/${state.overlayFrames.length}`;
   }
 
-  function startOverlayPlayback(fps) {
+  function startOverlayPlayback(fps = Number(el.playbackSpeed.value) || 6) {
     stopOverlayPlayback();
     if (state.overlayFrames.length < 2) {
       state.overlayPlaying = false;
       el.hudPause.textContent = "Play";
       el.hudLabel.textContent = state.overlayFrames[0]
-        ? `${state.overlayFrames[0].utc} · 1/1 (need 2+ frames to animate)`
+        ? `${formatFrameTime(state.overlayFrames[0].observed_at || state.overlayFrames[0].utc)} · 1/1 (need 2+ frames to animate)`
         : "—";
       return;
     }
@@ -312,7 +319,7 @@
       const opacity = Number(el.overlayOpacity.value) / 100;
       state.overlayFrames = data.frames;
 
-      state.overlay = L.imageOverlay(data.frames[0].url || data.frames[0].preview_url, bounds, {
+      state.overlay = L.imageOverlay(data.frames[0].preview_url || data.frames[0].url, bounds, {
         opacity,
         interactive: false,
         className: "radar-overlay",
@@ -323,10 +330,12 @@
       el.overlayHud.hidden = false;
       el.btnOverlayStop.disabled = false;
       state.playback = createPlayback({
-        onFrame: (_frame, index) => setOverlayFrame(index),
+        onFrame: (_decoded, _record, index) => setOverlayFrame(index),
+        speed: Number(el.playbackSpeed.value) || 6,
+        timeMode: state.playbackMode,
       });
-      state.playback.load(data.frames, { initialIndex: 0 });
-      startOverlayPlayback(fps || Number(el.exportFps.value) || 6);
+      state.playback.load(data.frames, { index: 0, timeMode: state.playbackMode });
+      startOverlayPlayback(fps || Number(el.playbackSpeed.value) || 6);
       showMsg(
         el.actionMsg,
         `Map overlay · ${data.frames.length} frames (${data.product || "radar"})`
@@ -340,11 +349,12 @@
     try {
       const status = await fetchJSON("/api/cache/status");
       const radars = Object.values(status.radars || {});
-      if (!radars.length) {
-        el.statusList.textContent = "No active archives yet.";
-        return;
-      }
-      el.statusList.innerHTML = radars
+      state.statusByRadar = new Map(radars.map((r) => [r.radar_id, r]));
+      const active = radars.filter((r) => r.running);
+      const cached = radars.filter((r) => Number(r.frame_count) > 0);
+      el.statusSummary.textContent = `${active.length} active archive${active.length === 1 ? "" : "s"} · ${cached.length} cached radar${cached.length === 1 ? "" : "s"}`;
+      el.statusActive.hidden = false;
+      el.statusList.innerHTML = active.length ? active
         .map((r) => {
           const mb = ((r.disk_bytes || 0) / (1024 * 1024)).toFixed(2);
           const badge = r.running
@@ -353,8 +363,10 @@
           return `<div class="status-card"><div><span class="id">${r.radar_id}</span>${badge}</div>
             <div class="meta">frames: ${r.frame_count || 0} · ${mb} MB<br/>last: ${r.last_frame_utc || "—"}
             ${r.last_error ? `<br/><span style="color:#e36d6d">${r.last_error}</span>` : ""}</div></div>`;
-        })
-        .join("");
+        }).join("") : "No active archives yet.";
+      el.statusCached.hidden = !cached.length;
+      el.statusCachedList.innerHTML = cached.map((r) => `<div class="status-card"><div><span class="id">${r.radar_id}</span></div><div class="meta">${r.frame_count} frames · ${(Number(r.disk_bytes || 0) / (1024 * 1024)).toFixed(2)} MB</div></div>`).join("");
+      applyRadarFilters();
 
       // Frame lists are loaded on radar selection and after explicit actions;
       // status polling must not repeatedly scan an archive directory.
@@ -419,7 +431,7 @@
   });
 
   el.btnOverlayPlay.addEventListener("click", () => {
-    playOverlayFromCache(Number(el.exportFps.value) || 6);
+    playOverlayFromCache(Number(el.playbackSpeed.value) || 6);
   });
 
   el.btnOverlayStop.addEventListener("click", () => {
@@ -437,8 +449,24 @@
     if (state.overlayPlaying) {
       stopOverlayPlayback();
     } else {
-      startOverlayPlayback(Number(el.exportFps.value) || 6);
+      startOverlayPlayback(Number(el.playbackSpeed.value) || 6);
     }
+  });
+
+  el.radarSearch.addEventListener("input", applyRadarFilters);
+  el.filterSupported.addEventListener("change", applyRadarFilters);
+  el.filterCached.addEventListener("change", applyRadarFilters);
+  el.playbackSpeed.addEventListener("change", () => {
+    const rate = Number(el.playbackSpeed.value) || 6;
+    if (state.playback) state.playback.setSpeed(rate);
+  });
+  el.playbackTimeMode.addEventListener("change", () => {
+    state.playbackMode = el.playbackTimeMode.value === "observed" ? "observed" : "uniform";
+    if (state.playback) state.playback.setTimeMode(state.playbackMode);
+  });
+  el.timezoneMode.addEventListener("change", () => {
+    if (state.frames.length) showFrame(Number(el.scrub.value));
+    if (state.overlayFrames.length) setOverlayFrame(state.overlayIndex);
   });
 
   el.exportForm.addEventListener("submit", async (ev) => {

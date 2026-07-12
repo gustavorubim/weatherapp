@@ -109,7 +109,9 @@ Open **[http://127.0.0.1:8000](http://127.0.0.1:8000)**.
 3. **Play on map** to animate cached frames.
 4. Set a UTC time range + FPS → **Generate MP4** → download.
 
-Optional: copy `.env.example` → `.env` to tune poll interval, image size, host/port.
+Optional: copy `.env.example` → `.env` to tune poll interval, image size, codecs, host/port, retention, and analysis.
+
+The advertised runtime is Python 3.9+; the base requirements include NumPy/SciPy so the full test and analysis paths are installed together.
 
 ---
 
@@ -126,7 +128,7 @@ flowchart TD
   E --> F[Background worker polls WMS ~75s]
   F --> G{SHA-256 changed?}
   G -->|No| F
-  G -->|Yes| H[Save PNG + update metadata.json]
+  G -->|Yes| H[Save archive + preview + update metadata.json]
   H --> F
   H --> I[Scrub frames / Play on map]
   I --> J[Choose UTC range + FPS]
@@ -161,7 +163,7 @@ sequenceDiagram
     WMS-->>CM: image bytes
     CM->>CM: sha256 vs metadata.last_sha256
     alt new frame
-      CM->>Disk: YYYYMMDD_HHMMSSZ.png
+      CM->>Disk: archive frame + bounded WebP preview
       CM->>Disk: metadata.json
     else duplicate
       CM-->>CM: skip write
@@ -321,14 +323,27 @@ cache/
   KTBW/
     metadata.json          # last hash, bbox, product, frame_count, …
     frames/
-      20260711_171234Z.png # UTC timestamps
+      20260711_171234Z.webp # archive format is configurable
+    previews/
+      20260711_171234Z.webp # bounded UI/playback preview
   TMCO/
     ...
 videos/
   KTBW_20260710_20260711_15fps.mp4
 ```
 
-Restarting resumes from `metadata.json` and will not re-save an unchanged current scan.
+Restarting resumes from `metadata.json` and will not re-save an unchanged current scan. The SQLite catalog is an index, not the source of truth; rebuild it after moving an archive:
+
+```bash
+python -m app.catalog_cli rebuild --cache-dir cache --database data/catalog.sqlite3
+python -m app.catalog_cli verify --database data/catalog.sqlite3
+```
+
+Archive writes are source-hash deduplicated and use separate source/stored hashes. `ARCHIVE_FORMAT=png8` or `webp-lossless` reduces disk use while previews stay capped by `PREVIEW_MAX_DIMENSION`.
+
+### Long-running service
+
+For a laptop/server run, keep collection outside the browser with `tmux` or a service manager. A minimal launchd/systemd unit should run `python -m app.cache_cli start KTBW --for 30d`, set `WorkingDirectory` to the repo, and point `CACHE_DIR`, `CATALOG_PATH`, and `ANALYSIS_ENABLED` at persistent paths. Stop the unit before moving the archive, then run the catalog rebuild command above.
 
 ---
 
@@ -343,8 +358,9 @@ Restarting resumes from `metadata.json` and will not re-save an unchanged curren
 | `POST` | `/api/cache/{id}/stop` | Stop archiving |
 | `GET` | `/api/cache/status` | Per-radar status / disk |
 | `GET` | `/api/cache/{id}/frames?start=&end=&after=&limit=` | Bounded frame page with `preview_url` and provenance fields |
-| `GET` | `/api/cache/{id}/latest` | Latest PNG |
+| `GET` | `/api/cache/{id}/latest` | Latest archive frame |
 | `GET` | `/api/cache/{id}/frame/{file}` | One PNG |
+| `GET` | `/api/cache/{id}/preview/{file}` | One bounded WebP preview |
 | `GET` | `/api/cache/{id}/overlay?start=&end=&after=&limit=` | Bounded frames + WGS84 bounds for map play |
 | `POST` | `/api/videos/export` | Build MP4 → `/videos/{filename}` |
 | `POST` | `/api/videos/jobs` | Queue a background MP4 export |
@@ -385,10 +401,11 @@ From `.env` / `.env.example`:
 - **Casing:** WMS workspaces/layers are **lowercase** (`ktbw:ktbw_sr_bref`). Display IDs stay uppercase (`KTBW`).
 - **Be polite:** default ~75s polling with backoff on errors — don’t hammer the service.
 - **Coverage:** not every WFS site has a reflectivity layer; those stay grey / non-archivable.
-- **Overlay vs MP4:** map play uses georeferenced PNGs; MP4 is for download/playback, not geo-alignment.
+- **Overlay vs MP4:** map play uses bounded WebP previews first and falls back to archive frames; MP4 is for download/playback, not geo-alignment.
+- **Playback timing:** `Uniform · smooth` uses a bounded requestAnimationFrame controller with a small decode cache; `Observed gaps · literal` respects scan timestamps and caps long gaps. The UI also supports UTC/local display without changing stored timestamps.
 - **Video jobs:** use `/api/videos/jobs` for unattended exports. The legacy synchronous `/api/videos/export` endpoint remains for scripts.
 - **Retention:** `/api/storage/retention/plan` is dry-run only. Automatic deletion is enabled only when the catalog/retention lane is installed and an explicit quota is configured.
-- **Analysis:** cell tracking and nowcasting are experimental, optional, and provenance-labelled. They do not claim severe-weather prediction from reflectivity alone.
+- **Analysis:** set `ANALYSIS_ENABLED=1` to enable cell detection and the provenance-labelled advection nowcast endpoint. Supported leads are 5, 15, 30, and 60 minutes; the output is experimental and does not claim severe-weather prediction from reflectivity alone.
 - **Milestones:** see [`PLAN.md`](PLAN.md).
 
 ## License

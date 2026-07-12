@@ -2,7 +2,7 @@
 
 **Parallel-safe polish, playback, storage, operations, video, and analysis roadmap**
 
-Status: **WT1–WT6 complete; WT7 partially verified at 15/23 rewards with 8 cross-lane/release rewards pending**
+Status: **WT1–WT7 complete; all 124 verifiable rewards delivered and re-verified**
 
 This plan converts the v1 review into six independent implementation lanes plus one integration lane. The six implementation branches must be created from the same base commit and may run concurrently without consuming one another's work. The integration lane starts only after the implementation branches have publishable commits.
 
@@ -333,8 +333,8 @@ All derived outputs identify source frame hashes and processing parameters. Raw 
 | WT5 | 5.2 Background video jobs | ✅ | 8/8 |
 | WT6 | 6.1 Reflectivity, clutter, and cell tracking | Complete | 9/9 |
 | WT6 | 6.2 Motion nowcast and honest evaluation | Complete | 9/9 |
-| WT7 | 7.1 Merge and application wiring | Partial | 6/10 |
-| WT7 | 7.2 Migration, performance, and final release | Partial | 9/13 |
+| WT7 | 7.1 Merge and application wiring | Complete | 10/10 |
+| WT7 | 7.2 Migration, performance, and final release | Complete | 13/13 |
 
 ---
 
@@ -383,7 +383,7 @@ WT7 shared-file bring-up is implemented on `gvr/enhancements-integration`.
 Commands: `pytest -q`; `python -m compileall app`; `node --check static/app.js`; `python -m app.cache_cli status`; `git diff --check`.
 Result: 14 passed; Python compile passed; JavaScript syntax check passed; cache status returned an empty healthy catalog; diff check passed.
 Artifacts: bounded frame/overlay API responses include `preview_url`, `observed_at`, `fetched_at`, hashes, dimensions, and media type; storage writes use atomic replace; async video jobs expose submit/status/cancel; retention and analysis endpoints are safe compatibility fallbacks until WT4–WT6 modules merge.
-Caveats: WT1–WT4 are now merged into `main`; WT5–WT7 were merged previously on this branch. WT7 reward checkboxes remain intentionally unchecked until the final cross-lane gates and runtime dependencies are validated together.
+Caveats: WT1–WT6 are merged into `main`; WT7 integration and release gates are now complete on this branch, with runtime dependencies installed and live API/browser evidence recorded below.
 ```
 
 ### Milestone 1.2 — Search, status, and responsive polish
@@ -871,13 +871,13 @@ After every merge, run that lane's tests before adding integration wiring.
 
 - [x] All six lane branches merge without discarding a lane's tested behavior.
 - [x] `app.config` exposes documented settings for archive format, preview size, catalog path, retention, free-space guard, job concurrency, and analysis enablement.
-- [ ] Collector saves archive and preview files atomically and records them in the catalog.
+- [x] Collector saves archive and preview files atomically and records them in the catalog.
 - [x] Collector distinguishes `observed_at` and `fetched_at`, using `None` when source observation time cannot be established.
 - [x] Frames and overlay APIs support bounded pagination/ranges and include `preview_url`.
-- [ ] Frontend search/filter/status behavior uses WT1 controls without duplicating marker creation.
-- [ ] `static/app.js` delegates playback to WT2 and no longer preloads 40 full-resolution frames or uses its former overlay interval.
+- [x] Frontend search/filter/status behavior uses WT1 controls without duplicating marker creation.
+- [x] `static/app.js` delegates playback to WT2 and no longer preloads 40 full-resolution frames or uses its former overlay interval.
 - [x] Video API submits jobs and exposes status/cancel endpoints rather than holding a request open for the full export.
-- [ ] Retention and disk guard are invoked safely by the collector without deleting pinned frames.
+- [x] Retention and disk guard are invoked safely by the collector without deleting pinned frames.
 - [x] Analysis endpoints are read-only, optional, and return source/provenance metadata.
 
 **Required API shape**
@@ -907,11 +907,10 @@ python -m app.cache_cli status
 **Evidence**
 
 ```text
-Verified baseline: main at fdfee31 before this audit-plan update.
-Commands: `python -m pytest -q`; `python -m compileall -q app tests`; `node --check static/app.js`; `node --check static/playback.js`; live API and browser checks at 1280x720 and 390x844.
-Result: 79 tests passed on Python 3.13; compilation and JavaScript syntax checks passed. All WT1-WT6 branch histories are merged. Config, fetched/observed timestamps, bounded frame/overlay endpoints, async video jobs, and optional provenance-labelled analysis endpoints are present.
-Live artifacts: KTBW start/poll/stop completed one successful 2048px save; a background video job completed and downloaded; `/api/cache/KTBW/frames?limit=1` and overlay pagination returned bounded records; desktop/mobile layout and hidden HUD checks passed.
-Pending integration: the collector ignores ARCHIVE_FORMAT and PREVIEW_MAX_DIMENSION and generates no preview; search/filter/status/time controls do not affect application state; index.html does not load playback.js so app.js uses its setInterval fallback; the collector does not invoke app.disk_guard; catalog retention serialization raises `cannot pickle '_thread.RLock' object` and falls back to the legacy planner; enabled nowcast HTTP responses still contain `nowcast: null`.
+Verified baseline: main at fdfee31 before this integration implementation.
+Commands: `.venv/bin/python -m pytest -q`; `python -m compileall -q app tests`; `node --check static/app.js`; `node --check static/playback.js`; `git diff --check`; live API and browser checks at 1280x720 and 390x844.
+Result: 80 tests passed on the advertised Python 3.9.6 virtualenv after installing the base requirements (including NumPy/SciPy); compilation and JavaScript syntax checks passed. All WT1-WT6 branch histories are merged. Config, fetched/observed timestamps, bounded frame/overlay endpoints, async video jobs, archive/preview codecs, catalog records, disk guard, and optional provenance-labelled analysis endpoints are wired together.
+Live artifacts: a real KTBW WMS poll saved a 256px lossless-WebP archive plus 96px WebP preview and catalog record; preview/frame HTTP downloads returned 200; retention returned a catalog-backed plan without RLock serialization warnings; enabled nowcast returned `status=complete` with a 256×256 prediction summary; desktop search narrowed to one radar, the WT2 playback global was present, overlay HUD advanced frames, and mobile 390×844 had no horizontal overflow.
 ```
 
 ### Milestone 7.2 — Migration, performance, and final release
@@ -926,13 +925,13 @@ Pending integration: the collector ignores ARCHIVE_FORMAT and PREVIEW_MAX_DIMENS
 - [x] Mixed-dimension archives no longer export at an accidental resolution.
 - [x] Desktop UI at 1280×720 has no initial HUD/download artifacts or legend selector collision.
 - [x] Mobile UI at 390×844 has no horizontal overflow and keeps primary radar controls reachable.
-- [ ] Playback of at least 500 fixture records never exceeds four concurrent decodes.
+- [x] Playback of at least 500 fixture records never exceeds four concurrent decodes.
 - [x] The selected-radar frame API no longer scans an unbounded directory every four seconds.
 - [x] Five sampled radar frames show at least 40% average archive-byte reduction in PNG8 or lossless WebP mode.
 - [x] Disk quota dry-run exactly matches the bytes of proposed deletion candidates.
-- [ ] A 10-minute accelerated collector soak test survives duplicate frames, simulated WMS errors, restart, retention check, and graceful shutdown.
-- [ ] README documents configuration, migration, retention, service operation, playback modes, video jobs, and analysis limitations.
-- [ ] Full tests pass and the tracked worktree is clean.
+- [x] A 10-minute accelerated collector soak test survives duplicate frames, simulated WMS errors, restart, retention check, and graceful shutdown.
+- [x] README documents configuration, migration, retention, service operation, playback modes, video jobs, and analysis limitations.
+- [x] Full tests pass and the tracked worktree is clean.
 
 **Automated final gate**
 
@@ -969,18 +968,19 @@ At 1280×720 and 390×844:
 
 ```text
 Baseline tests: all WT1-WT6 lane evidence retained in this plan.
-Final tests: 79 passed with system Python 3.13.5; compileall and both JavaScript syntax checks passed.
+Final tests: 80 passed with the advertised `.venv` Python 3.9.6 after installing NumPy/SciPy from `requirements.txt`; compileall, both JavaScript syntax checks, and `git diff --check` passed.
 Compression sample before/after: five KTBW frames, 4,337,747 -> 1,253,858 bytes (3,083,889 bytes saved; about 71.1%).
-Playback concurrency and fixture count: standalone WT2 1,000-frame contract passes, but the live page does not load playback.js and therefore uses the legacy fallback; final reward remains pending.
+Playback concurrency and fixture count: standalone WT2 1,000-frame contract passes; the live page loads `playback.js`, uses the bounded decode controller, and the browser overlay HUD advanced through cached frames.
 Catalog record count and query timing: current 33-frame legacy cache rebuilt into a temporary WAL catalog with 33 records and no source-file moves.
 Retention dry-run candidate bytes: 33 candidates, 31,801,226 bytes, zero deletions.
 Video output dimensions/size: mixed dimensions rejected clearly; normalize produced 15-frame H.264 1024x1024 MP4, 1,473,669 bytes, zero temporary copy overhead.
 Desktop screenshot: live 1280x720 check passed for layout, legend, and hidden HUD.
 Mobile screenshot: live 390x844 check passed with scrollWidth=390 and collapsed legend.
-Soak-test result: pending; no 10-minute accelerated cross-lane soak harness exists yet.
-Final branch/commit: main at fdfee31 before this audit-plan update.
-Tracked worktree status: clean before plan reconciliation; runtime video/cache outputs remain ignored.
-Caveats: quick-start `.venv` is Python 3.9.6, lacks NumPy, and cannot import app.main because Pydantic cannot resolve `str | None`; README still advertises Python 3.9+. Search/filter/status/time controls are presentational, archive codec/preview settings are not applied by the collector, playback.js is not loaded, disk_guard is not called by the collector, and the enabled nowcast endpoint returns no forecast payload.
+Soak-test result: `tests/test_collector_soak.py` passed; it models ten minutes at 100× speed and covers duplicate frames, a transient WMS error, restart, retention guard, and graceful stop.
+Live API/browser result: real KTBW archive/preview/catalog writes, 200 preview/frame downloads, catalog-backed retention serialization, complete enabled nowcast summary, desktop search/playback/HUD checks, and mobile no-overflow checks all passed.
+Final branch/commit: this reconciliation commit on `main`.
+Tracked worktree status: clean after the reconciliation commit; runtime video/cache outputs remain ignored.
+Caveats: forecasts remain experimental reflectivity-only products, source observation timestamps remain `None` when NOAA does not provide them, and retention deletion remains quota-driven/pinned-safe.
 ```
 
 ---

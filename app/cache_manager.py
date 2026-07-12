@@ -12,8 +12,12 @@ from typing import Any
 import httpx
 
 from app.config import (
+    ARCHIVE_FORMAT,
+    CACHE_DIR,
+    CATALOG_PATH,
     IMAGE_HEIGHT,
     IMAGE_WIDTH,
+    PREVIEW_MAX_DIMENSION,
     POLL_INTERVAL_SEC,
     RETENTION_MAX_AGE_DAYS,
     RETENTION_MAX_TOTAL_BYTES,
@@ -21,6 +25,8 @@ from app.config import (
     USER_AGENT,
     ensure_dirs,
 )
+from app.disk_guard import DiskGuard
+from app.frame_codec import encode_archive_frame, encode_preview_frame
 from app.products import supports_archiving
 from app.radars import get_radar
 from app.storage import load_metadata, save_frame_if_new
@@ -156,15 +162,36 @@ class CacheManager:
             rid, width=self.width, height=self.height, client=client
         )
         digest = sha256_bytes(data)
+        disk = DiskGuard(CACHE_DIR).check()
+        if disk.state == "critical":
+            logger.error("Skipping %s frame: disk space is critical (%s free)", rid, disk.free_bytes)
+            return {
+                "radar_id": rid,
+                "saved": False,
+                "path": None,
+                "sha256": digest,
+                "product": product,
+                "metadata": load_metadata(rid),
+                "disk_guard": disk.as_dict(),
+            }
+        archive = encode_archive_frame(data, archive_format=ARCHIVE_FORMAT)
+        preview = encode_preview_frame(data, max_dimension=PREVIEW_MAX_DIMENSION)
         path, meta, saved = save_frame_if_new(
             rid,
-            data,
+            archive.data,
             digest,
-            width=self.width,
-            height=self.height,
+            width=archive.width,
+            height=archive.height,
             bbox_3857=bbox,
             poll_interval_sec=self.poll_interval_sec,
             product=product,
+            media_type=archive.media_type,
+            source_sha256=archive.source_sha256,
+            stored_sha256=archive.stored_sha256,
+            extension=archive.extension,
+            preview_bytes=preview.data,
+            preview_path=CACHE_DIR / rid / "previews",
+            preview_media_type=preview.media_type,
         )
         if saved:
             self._record_catalog_frame(rid, path, meta, digest, product)
@@ -216,23 +243,30 @@ class CacheManager:
         if catalog is None:
             return
         fetched_at = metadata.get("last_fetched_at")
+        per_frame = metadata.get("frames") if isinstance(metadata.get("frames"), dict) else {}
+        detail = per_frame.get(path.name, {}) if isinstance(per_frame, dict) else {}
         record = record_type(
             radar_id=radar_id,
             filename=path.name,
             path=str(path),
-            preview_path=None,
+            preview_path=detail.get("preview_path"),
             product=product,
             observed_at=metadata.get("last_observed_at"),
             fetched_at=fetched_at,
             width=int(metadata.get("width") or self.width),
             height=int(metadata.get("height") or self.height),
-            media_type="image/png",
-            source_sha256=stored_sha256,
-            stored_sha256=stored_sha256,
+            media_type=detail.get("media_type", "image/png"),
+            source_sha256=detail.get("source_sha256", stored_sha256),
+            stored_sha256=detail.get("stored_sha256", stored_sha256),
             bytes=path.stat().st_size,
             pinned=False,
         )
-        catalog.record_frame(record)
+        try:
+            catalog.record_frame(record)
+        finally:
+            close = getattr(catalog, "close", None)
+            if callable(close):
+                close()
 
     def _run_retention_guard(self, radar_id: str) -> None:
         """Invoke WT4 retention only when an explicit quota is configured.
@@ -243,6 +277,9 @@ class CacheManager:
         """
         if not any((RETENTION_MAX_TOTAL_BYTES, RETENTION_MAX_AGE_DAYS, RETENTION_MIN_FREE_BYTES)):
             return
+        disk = DiskGuard(CACHE_DIR).check()
+        if disk.state == "critical":
+            logger.error("Retention guard invoked while disk is critical: %s free", disk.free_bytes)
         try:
             retention = importlib.import_module("app.retention")
         except ModuleNotFoundError as exc:
@@ -280,7 +317,12 @@ class CacheManager:
         # The collector may enforce a configured plan, but defaults remain
         # dry-run safe. WT4's apply function is responsible for not touching
         # pinned frames and for verifying deletions.
-        retention.apply_retention(plan, dry_run=False)
+        try:
+            retention.apply_retention(plan, dry_run=False)
+        finally:
+            close = getattr(catalog, "close", None)
+            if callable(close):
+                close()
 
     def _run_worker(self, state: WorkerState) -> None:
         backoff = self.poll_interval_sec

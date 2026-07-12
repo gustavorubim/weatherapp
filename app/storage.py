@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import mimetypes
 import os
 import re
@@ -8,6 +9,8 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from PIL import Image
 
 from app.config import CACHE_DIR, IMAGE_HEIGHT, IMAGE_WIDTH, POLL_INTERVAL_SEC, PRODUCT, ensure_dirs
 
@@ -36,6 +39,8 @@ def default_metadata(radar_id: str) -> dict[str, Any]:
         "product": PRODUCT,
         "last_frame_utc": None,
         "last_sha256": None,
+        "last_source_sha256": None,
+        "last_stored_sha256": None,
         "frame_count": 0,
         "width": IMAGE_WIDTH,
         "height": IMAGE_HEIGHT,
@@ -148,6 +153,18 @@ def list_frames(
                 "+00:00", "Z"
             )
         media_type = detail.get("media_type") or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        width = detail.get("width")
+        height = detail.get("height")
+        if not width or not height:
+            # Older metadata recorded the configured canvas size rather than
+            # the actual image dimensions. Probe legacy frames so API/video
+            # consumers never receive a misleading size.
+            try:
+                with Image.open(path) as image:
+                    width, height = image.size
+            except Exception:  # noqa: BLE001
+                width = width or metadata.get("width")
+                height = height or metadata.get("height")
         frames.append(
             {
                 "filename": path.name,
@@ -158,8 +175,8 @@ def list_frames(
                 "preview_path": detail.get("preview_path"),
                 "observed_at": detail.get("observed_at"),
                 "fetched_at": fetched_at,
-                "width": detail.get("width") or metadata.get("width"),
-                "height": detail.get("height") or metadata.get("height"),
+                "width": width,
+                "height": height,
                 "media_type": media_type,
                 "source_sha256": detail.get("source_sha256") or detail.get("sha256"),
                 "stored_sha256": detail.get("stored_sha256") or detail.get("sha256"),
@@ -183,6 +200,12 @@ def save_frame_if_new(
     observed_at: str | datetime | None = None,
     fetched_at: str | datetime | None = None,
     media_type: str = "image/png",
+    source_sha256: str | None = None,
+    stored_sha256: str | None = None,
+    extension: str = ".png",
+    preview_bytes: bytes | None = None,
+    preview_path: Path | str | None = None,
+    preview_media_type: str = "image/webp",
 ) -> tuple[Path | None, dict[str, Any], bool]:
     """
     Persist frame only if sha256 differs from last known.
@@ -194,34 +217,69 @@ def save_frame_if_new(
     meta = load_metadata(rid)
     prod = product or meta.get("product") or PRODUCT
 
-    if meta.get("last_sha256") == sha256:
+    source_digest = source_sha256 or sha256
+    stored_digest = stored_sha256 or hashlib.sha256(png_bytes).hexdigest()
+    if meta.get("last_source_sha256") == source_digest or (
+        not meta.get("last_source_sha256") and meta.get("last_sha256") == source_digest
+    ):
         meta["disk_bytes"] = frame_disk_bytes(rid)
         save_metadata(rid, meta)
         return None, meta, False
 
     now = datetime.now(timezone.utc)
     stamp = now.strftime("%Y%m%d_%H%M%SZ")
-    path = frames_dir(rid) / f"{stamp}.png"
+    extension = extension if extension.startswith(".") else f".{extension}"
+    extension = extension.lower()
+    if extension not in FRAME_EXTENSIONS:
+        raise ValueError(f"unsupported frame extension: {extension}")
+    path = frames_dir(rid) / f"{stamp}{extension}"
     # Avoid rare same-second collisions.
     if path.exists():
         stamp = now.strftime("%Y%m%d_%H%M%S") + f"{now.microsecond:06d}Z"
-        path = frames_dir(rid) / f"{stamp}.png"
+        path = frames_dir(rid) / f"{stamp}{extension}"
         # Still colliding (extremely unlikely) — append counter.
         n = 1
         while path.exists():
-            path = frames_dir(rid) / f"{stamp[:-1]}_{n}Z.png"
+            path = frames_dir(rid) / f"{stamp[:-1]}_{n}Z{extension}"
             n += 1
 
-    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+    def _write_atomic(target: Path, payload: bytes) -> None:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", dir=str(target.parent))
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_name, target)
+        finally:
+            if os.path.exists(temp_name):
+                os.unlink(temp_name)
+
+    resolved_preview: Path | None = None
+    if preview_bytes is not None:
+        if preview_path:
+            candidate = Path(preview_path)
+            resolved_preview = (
+                candidate / f"{path.stem}.webp" if candidate.suffix == "" else candidate
+            )
+        else:
+            resolved_preview = radar_dir(rid) / "previews" / f"{path.stem}.webp"
     try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(png_bytes)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temp_name, path)
-    finally:
-        if os.path.exists(temp_name):
-            os.unlink(temp_name)
+        # Stage both artifacts before metadata becomes visible. Each replace
+        # is atomic, and a preview failure rolls back the newly-created
+        # archive so readers never observe a half-published frame pair.
+        _write_atomic(path, png_bytes)
+        if resolved_preview is not None:
+            _write_atomic(resolved_preview, preview_bytes or b"")
+    except Exception:
+        for candidate in (path, resolved_preview):
+            if candidate is not None and candidate.exists():
+                try:
+                    candidate.unlink()
+                except OSError:
+                    pass
+        raise
 
     fetched = _normalise_timestamp(fetched_at) or datetime.now(timezone.utc)
     observed = _normalise_timestamp(observed_at)
@@ -235,15 +293,21 @@ def save_frame_if_new(
         "width": width,
         "height": height,
         "media_type": media_type,
-        "source_sha256": sha256,
-        "stored_sha256": sha256,
+        "source_sha256": source_digest,
+        "stored_sha256": stored_digest,
+        "preview_path": str(resolved_preview) if resolved_preview else None,
+        "preview_media_type": preview_media_type if resolved_preview else None,
     }
     meta.update(
         {
             "radar_id": rid,
             "product": prod,
             "last_frame_utc": now.isoformat().replace("+00:00", "Z"),
-            "last_sha256": sha256,
+            # Keep last_sha256 for backwards compatibility; it is the source
+            # digest used for WMS deduplication.
+            "last_sha256": source_digest,
+            "last_source_sha256": source_digest,
+            "last_stored_sha256": stored_digest,
             "frame_count": sum(
                 1
                 for candidate in frames_dir(rid).iterdir()

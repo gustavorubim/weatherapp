@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import hashlib
 import logging
 import shutil
 import threading
@@ -44,6 +45,8 @@ def _iso(value: datetime | None) -> str | None:
 
 
 def _jsonable(value: Any) -> Any:
+    if hasattr(value, "as_dict") and callable(value.as_dict):
+        return _jsonable(value.as_dict())
     if is_dataclass(value):
         return {key: _jsonable(item) for key, item in asdict(value).items()}
     if isinstance(value, Path):
@@ -54,6 +57,8 @@ def _jsonable(value: Any) -> Any:
         return {str(key): _jsonable(item) for key, item in value.items()}
     if isinstance(value, (list, tuple, set)):
         return [_jsonable(item) for item in value]
+    if hasattr(value, "tolist") and callable(value.tolist):
+        return value.tolist()
     return value
 
 
@@ -61,12 +66,19 @@ def _frame_response(radar_id: str, frame: dict[str, Any]) -> dict[str, Any]:
     rid = radar_id.strip().upper()
     filename = str(frame["filename"])
     frame_url = f"/api/cache/{quote(rid, safe='')}/frame/{quote(filename, safe='')}"
+    preview_path = frame.get("preview_path")
+    preview_name = Path(preview_path).name if preview_path else None
+    preview_url = (
+        f"/api/cache/{quote(rid, safe='')}/preview/{quote(preview_name, safe='')}"
+        if preview_name
+        else frame_url
+    )
     result = {
         "filename": filename,
         "utc": frame.get("utc"),
         "observed_at": frame.get("observed_at"),
         "fetched_at": frame.get("fetched_at"),
-        "preview_url": frame_url,
+        "preview_url": preview_url,
         "url": frame_url,
         "size": frame.get("size", 0),
         "width": frame.get("width"),
@@ -286,8 +298,8 @@ app = FastAPI(title="RadarVault", version=__version__, lifespan=lifespan)
 
 class ExportRequest(BaseModel):
     radar_id: str
-    start: str | None = None
-    end: str | None = None
+    start: Optional[str] = None
+    end: Optional[str] = None
     fps: float = Field(default=15, ge=1, le=60)
     quality: str = "balanced"
     dimension_policy: str = "error"
@@ -299,9 +311,9 @@ class VideoJobRequest(ExportRequest):
 
 
 class RetentionPlanRequest(BaseModel):
-    max_total_bytes: int | None = Field(default=None, gt=0)
-    max_age_days: int | None = Field(default=None, gt=0)
-    min_free_bytes: int | None = Field(default=None, gt=0)
+    max_total_bytes: Optional[int] = Field(default=None, gt=0)
+    max_age_days: Optional[int] = Field(default=None, gt=0)
+    min_free_bytes: Optional[int] = Field(default=None, gt=0)
     preserve_pinned: bool = True
 
 
@@ -453,6 +465,16 @@ def api_frame(radar_id: str, filename: str):
     return FileResponse(path, media_type=media_type, filename=filename)
 
 
+@app.get("/api/cache/{radar_id}/preview/{filename}")
+def api_preview(radar_id: str, filename: str):
+    if not filename or Path(filename).name != filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    path = frames_dir(radar_id).parent / "previews" / filename
+    if not path.is_file() or path.suffix.lower() != ".webp":
+        raise HTTPException(status_code=404, detail="Preview not found")
+    return FileResponse(path, media_type="image/webp", filename=filename)
+
+
 def _storage_status() -> dict[str, Any]:
     root = config.CACHE_DIR
     root.mkdir(parents=True, exist_ok=True)
@@ -560,6 +582,12 @@ def api_retention_plan(request: RetentionPlanRequest) -> dict[str, Any]:
     catalog = _catalog()
     if retention is not None and catalog is not None and hasattr(retention, "plan_retention"):
         try:
+            # A moved/legacy archive may not have been indexed yet. Keep the
+            # filesystem planner authoritative until the catalog rebuild has
+            # records for this archive.
+            stats = catalog.global_stats() if hasattr(catalog, "global_stats") else {}
+            if int(stats.get("frame_count", 0)) == 0:
+                return _legacy_retention_plan(request)
             policy = retention.RetentionPolicy(
                 max_total_bytes=request.max_total_bytes,
                 max_age_days=request.max_age_days,
@@ -567,7 +595,7 @@ def api_retention_plan(request: RetentionPlanRequest) -> dict[str, Any]:
                 preserve_pinned=request.preserve_pinned,
             )
             plan = retention.plan_retention(catalog, policy, now=_utc_now())
-            return _jsonable(plan)
+            return plan.as_dict() if hasattr(plan, "as_dict") else _jsonable(plan)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Catalog retention planner unavailable; using legacy planner: %s", exc)
     return _legacy_retention_plan(request)
@@ -641,9 +669,15 @@ def api_video_job_cancel(job_id: str) -> dict[str, Any]:
 def api_analysis_cells(radar_id: str) -> dict[str, Any]:
     frames = list_frames(radar_id, limit=5000)
     latest = frames[-1] if frames else None
+    source_hash = latest.get("source_sha256") if latest else None
+    if latest and not source_hash:
+        try:
+            source_hash = hashlib.sha256(Path(latest["path"]).read_bytes()).hexdigest()
+        except OSError:
+            source_hash = None
     provenance = {
         "source_frame": latest["filename"] if latest else None,
-        "source_sha256": latest.get("stored_sha256") if latest else None,
+        "source_sha256": source_hash,
         "parameters": {"analysis_enabled": config.ANALYSIS_ENABLED},
         "experimental": True,
     }
@@ -674,9 +708,6 @@ def api_analysis_nowcast(radar_id: str, request: NowcastRequest) -> dict[str, An
         "parameters": {"lead_minutes": request.lead_minutes, "analysis_enabled": config.ANALYSIS_ENABLED},
         "experimental": True,
     }
-    # WT6 owns the scientific implementation. Returning a structured,
-    # provenance-labelled disabled response keeps the endpoint safe before it
-    # is merged and avoids implying a forecast from raw reflectivity alone.
     analysis = _optional_module("app.analysis") if config.ANALYSIS_ENABLED else None
     if analysis is None:
         return {
@@ -686,13 +717,49 @@ def api_analysis_nowcast(radar_id: str, request: NowcastRequest) -> dict[str, An
             "nowcast": None,
             "provenance": provenance,
         }
-    return {
-        "radar_id": radar_id.strip().upper(),
-        "enabled": True,
-        "status": "analysis_module_loaded",
-        "nowcast": None,
-        "provenance": provenance,
-    }
+    if len(frames) < 2 or not hasattr(analysis, "nowcast_from_frames"):
+        return {
+            "radar_id": radar_id.strip().upper(),
+            "enabled": True,
+            "status": "insufficient_frames",
+            "nowcast": None,
+            "provenance": provenance,
+        }
+    try:
+        from PIL import Image
+
+        selected = frames[-2:]
+        images = []
+        for frame in selected:
+            with Image.open(frame["path"]) as image:
+                images.append(image.convert("RGBA"))
+        timestamps = [frame.get("observed_at") or frame.get("utc") for frame in selected]
+        result = analysis.nowcast_from_frames(
+            images,
+            timestamps,
+            lead_minutes=request.lead_minutes,
+            method="advection",
+        )
+        prediction = result.prediction
+        return {
+            "radar_id": radar_id.strip().upper(),
+            "enabled": True,
+            "status": "complete",
+            "nowcast": {
+                "method": result.method,
+                "lead_minutes": result.lead_minutes,
+                "shape": list(prediction.shape),
+                "min_bin": int(prediction.min()),
+                "max_bin": int(prediction.max()),
+                "active_pixels": int((prediction > 0).sum()),
+                "experimental": result.experimental,
+            },
+            "provenance": _jsonable(result.provenance),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"Nowcast failed: {exc}") from exc
 
 
 @app.get("/videos/{filename}")
