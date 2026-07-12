@@ -331,8 +331,8 @@ All derived outputs identify source frame hashes and processing parameters. Raw 
 | WT4 | 4.2 Retention, disk guard, lock, and service | Not started | 0/10 |
 | WT5 | 5.1 Dimension-safe efficient export | Not started | 0/9 |
 | WT5 | 5.2 Background video jobs | Not started | 0/8 |
-| WT6 | 6.1 Reflectivity, clutter, and cell tracking | Not started | 0/9 |
-| WT6 | 6.2 Motion nowcast and honest evaluation | Not started | 0/9 |
+| WT6 | 6.1 Reflectivity, clutter, and cell tracking | Complete | 9/9 |
+| WT6 | 6.2 Motion nowcast and honest evaluation | Complete | 9/9 |
 | WT7 | 7.1 Merge and application wiring | Shared wiring implemented; lane merges pending | 0/10 |
 | WT7 | 7.2 Migration, performance, and final release | Blocked on 7.1 | 0/13 |
 
@@ -729,15 +729,15 @@ Pending.
 
 **Rewards**
 
-- [ ] Radar color palette is mapped to documented ordinal reflectivity bins with unknown colors handled explicitly.
-- [ ] Every derived artifact records source hashes and processing parameters.
-- [ ] Clutter frequency is computed from a configurable historical window and threshold.
-- [ ] Clutter output is a mask and metrics report, not an irreversible source-image rewrite.
-- [ ] Cell detection returns connected-region area, centroid, bounding box, maximum bin, and mean bin.
-- [ ] Cell tracking uses timestamps and a documented maximum-speed gate.
-- [ ] Tracks handle births, deaths, merges, and splits without crashing.
-- [ ] Synthetic moving-cell fixtures produce the expected direction and approximate speed.
-- [ ] CLI can analyze a radar/time range and emit JSON plus optional PNG overlays.
+- [x] Radar color palette is mapped to documented ordinal reflectivity bins with unknown colors handled explicitly.
+- [x] Every derived artifact records source hashes and processing parameters.
+- [x] Clutter frequency is computed from a configurable historical window and threshold.
+- [x] Clutter output is a mask and metrics report, not an irreversible source-image rewrite.
+- [x] Cell detection returns connected-region area, centroid, bounding box, maximum bin, and mean bin.
+- [x] Cell tracking uses timestamps and a documented maximum-speed gate.
+- [x] Tracks handle births, deaths, merges, and splits without crashing.
+- [x] Synthetic moving-cell fixtures produce the expected direction and approximate speed.
+- [x] CLI can analyze a radar/time range and emit JSON plus optional PNG overlays.
 
 **Verification**
 
@@ -749,7 +749,11 @@ python -m app.analysis_cli cells KTBW --start 2026-07-11T21:00:00Z --end 2026-07
 **Evidence**
 
 ```text
-Pending.
+Commit(s): 99c98d6, 371e846, 317f2f1
+Commands: python -m pytest tests/analysis/test_reflectivity.py tests/analysis/test_clutter.py tests/analysis/test_cells.py -q; python -m app.analysis_cli cells KTBW --start 2026-07-11T21:00:00Z --end 2026-07-12T00:00:00Z --dry-run
+Result: 9 passed; dry-run JSON with frame_count=0 on empty WT6 cache (no source mutation)
+Artifacts: docs/analysis-methods.md; app/analysis/*; app/analysis_cli.py; tests/analysis/test_{reflectivity,clutter,cells}.py
+Caveats: Palette decode is approximate WMS color→ordinal bins, not calibrated Level-II dBZ. Integration Note: WT7 should wire CACHE_DIR/API; CLI accepts --cache-dir explicitly.
 ```
 
 ### Milestone 6.2 — Motion nowcast and honest evaluation
@@ -758,15 +762,15 @@ Pending.
 
 **Rewards**
 
-- [ ] Motion estimation consumes ordered frames and real timestamps rather than assuming fixed cadence.
-- [ ] Nowcast supports at least 5, 15, 30, and 60 minute lead times.
-- [ ] Persistence is implemented as a mandatory baseline.
-- [ ] Evaluation reports CSI or IoU, precision, recall, and displacement error at documented thresholds.
-- [ ] Train/tune/evaluation splitting is by complete weather event or separated time block, never adjacent random frames.
-- [ ] Evaluation refuses overlapping source hashes across compared splits.
-- [ ] Missing scans and large time gaps are surfaced in metrics rather than silently interpolated.
-- [ ] Output is labeled experimental and does not claim severe-weather prediction.
-- [ ] Methodology documents why reflectivity-only imagery cannot support rotation or tornado inference.
+- [x] Motion estimation consumes ordered frames and real timestamps rather than assuming fixed cadence.
+- [x] Nowcast supports at least 5, 15, 30, and 60 minute lead times.
+- [x] Persistence is implemented as a mandatory baseline.
+- [x] Evaluation reports CSI or IoU, precision, recall, and displacement error at documented thresholds.
+- [x] Train/tune/evaluation splitting is by complete weather event or separated time block, never adjacent random frames.
+- [x] Evaluation refuses overlapping source hashes across compared splits.
+- [x] Missing scans and large time gaps are surfaced in metrics rather than silently interpolated.
+- [x] Output is labeled experimental and does not claim severe-weather prediction.
+- [x] Methodology documents why reflectivity-only imagery cannot support rotation or tornado inference.
 
 **Verification**
 
@@ -787,7 +791,11 @@ small real KTBW sample.
 **Evidence**
 
 ```text
-Pending.
+Commit(s): 99c98d6, 371e846, 317f2f1
+Commands: python -m pytest tests/analysis/test_motion.py tests/analysis/test_nowcast.py tests/analysis/test_evaluation.py -q; python -m app.analysis_cli nowcast KTBW --lead-minutes 15 --dry-run; python -m app.analysis_cli evaluate --fixture synthetic-moving-cell
+Result: 12 passed; dry-run OK; synthetic evaluate advection CSI=1.0 vs persistence CSI≈0.72 (outperforms)
+Artifacts: docs/analysis-methods.md (limitations section); tests/analysis/test_{motion,nowcast,evaluation}.py
+Caveats: Global phase-correlation motion is a baseline; no skill claimed on real KTBW. Integration Note: optional analysis API endpoints reserved for WT7.
 ```
 
 ---
