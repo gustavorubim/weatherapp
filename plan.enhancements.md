@@ -683,7 +683,7 @@ The current mixed 1024/2048 KTBW fixture must either fail clearly in error mode 
 **Evidence**
 
 ```text
-Commit(s): (see branch gvr/enhancements-video)
+Commit(s): 5a16a69
 Commands: pytest tests/test_video_export.py tests/test_video_jobs.py -q
   python -m app.video_cli export KTBW --dimension-policy error --out /tmp/radarvault-test.mp4
   python -m app.video_cli export KTBW --dimension-policy normalize --target-width 2048 --target-height 2048 --out /tmp/radarvault-test-norm.mp4
@@ -721,7 +721,7 @@ Tests must cover successful completion, ffmpeg failure, cancellation, duplicate 
 **Evidence**
 
 ```text
-Commit(s): (see branch gvr/enhancements-video)
+Commit(s): 5a16a69
 Commands: pytest tests/test_video_jobs.py tests/test_video_export.py -q
 Result: 14 passed covering complete/fail/cancel/duplicate/concurrency/cleanup.
 Artifacts: app/video_jobs.py, docs/video-export.md
