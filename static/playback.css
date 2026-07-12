@@ -1,0 +1,94 @@
+/* Optional shell styles for the standalone RadarVaultPlayback component. */
+.rv-playback {
+  position: relative;
+  min-width: 0;
+  color: var(--ink, #e7f0eb);
+}
+
+.rv-playback__viewport {
+  position: relative;
+  overflow: hidden;
+  min-height: 120px;
+  background: #0a100e;
+  border: 1px solid var(--line, #2a3b34);
+  border-radius: 0.55rem;
+}
+
+.rv-playback__frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #0a100e;
+  transition: opacity 140ms ease;
+}
+
+.rv-playback__hud {
+  position: absolute;
+  inset: 0.75rem 0.75rem auto auto;
+  z-index: 2;
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+  max-width: calc(100% - 1.5rem);
+  padding: 0.4rem 0.6rem;
+  overflow: hidden;
+  color: var(--ink, #e7f0eb);
+  background: rgba(15, 23, 20, 0.9);
+  border: 1px solid var(--line, #2a3b34);
+  border-radius: 0.5rem;
+  backdrop-filter: blur(8px);
+}
+
+.rv-playback__hud-label {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rv-playback__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+  margin-top: 0.6rem;
+}
+
+.rv-playback__controls input[type="range"] {
+  min-width: 8rem;
+  flex: 1 1 12rem;
+}
+
+.rv-playback__status {
+  color: var(--muted, #8fa399);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+}
+
+.rv-playback [hidden],
+.rv-playback__hud[hidden] {
+  display: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rv-playback__frame {
+    transition: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .rv-playback__hud {
+    inset: 0.5rem 0.5rem auto 0.5rem;
+  }
+
+  .rv-playback__controls {
+    align-items: stretch;
+  }
+
+  .rv-playback__controls input[type="range"] {
+    flex-basis: 100%;
+  }
+}
