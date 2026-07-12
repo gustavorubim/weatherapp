@@ -51,9 +51,25 @@ def build_getmap_url(
     height: int,
     bbox: list[float] | None = None,
     product: str | None = None,
+    image_format: str = "image/png8",
+    format: str | None = None,
 ) -> str:
+    """Build a GetMap URL.
+
+    NOAA's WMS accepts ``image/png8`` for indexed, transparent imagery.  The
+    format is deliberately a keyword-only option so callers using the original
+    API keep working.  ``format`` is accepted as a small compatibility alias
+    for code that mirrors the WMS query parameter name.
+    """
     prod = resolve_product(radar_id, product)
     box = bbox or radar_bbox_3857(lon, lat, range_for_product(prod))
+    requested_format = format or image_format
+    if requested_format in {"png", "image/png"}:
+        requested_format = "image/png"
+    elif requested_format in {"png8", "image/png8"}:
+        requested_format = "image/png8"
+    else:
+        raise ValueError(f"unsupported WMS image format: {requested_format!r}")
     params = {
         "service": "WMS",
         "version": "1.3.0",
@@ -64,7 +80,7 @@ def build_getmap_url(
         "bbox": ",".join(str(v) for v in box),
         "width": str(width),
         "height": str(height),
-        "format": "image/png",
+        "format": requested_format,
         "transparent": "true",
     }
     return str(httpx.URL(WMS_OWS, params=params))
@@ -97,32 +113,57 @@ def fetch_png_bytes(
     bbox: list[float] | None = None,
     product: str | None = None,
     client: httpx.Client | None = None,
+    image_format: str = "image/png8",
+    format: str | None = None,
 ) -> tuple[bytes, list[float], str]:
-    """Download latest GetMap PNG bytes. Returns (png_bytes, bbox_used, product)."""
+    """Download latest GetMap PNG bytes.
+
+    PNG8 is attempted first to reduce bandwidth.  A server may advertise the
+    format but reject it for a particular layer, so a failed or malformed PNG8
+    response is retried exactly once as ordinary ``image/png``.  The return
+    shape is unchanged for existing collectors.
+    """
     site = get_radar(radar_id)
     if site is None:
         raise WmsError(f"Unknown radar id: {radar_id}")
 
     prod = resolve_product(radar_id, product)
     box = bbox or radar_bbox_3857(site["lon"], site["lat"], range_for_product(prod))
-    url = build_getmap_url(
-        radar_id,
-        lon=site["lon"],
-        lat=site["lat"],
-        width=width,
-        height=height,
-        bbox=box,
-        product=prod,
-    )
-
     owns_client = client is None
     client = client or httpx.Client(timeout=90.0, headers={"User-Agent": USER_AGENT}, trust_env=False)
     try:
-        resp = client.get(url)
-        if resp.status_code >= 400:
-            raise WmsError(f"WMS HTTP {resp.status_code}: {resp.text[:300]}")
-        _validate_png_bytes(resp.content, expected_size=(width, height))
-        return resp.content, box, prod
+        # The first request may be explicitly set to PNG for callers that need
+        # a conservative server compatibility path.  Only PNG8 gets a
+        # fallback retry.
+        requested_format = format or image_format
+        formats = [requested_format]
+        if requested_format in {"png8", "image/png8"}:
+            formats.append("image/png")
+        last_error: WmsError | None = None
+        for current_format in formats:
+            url = build_getmap_url(
+                radar_id,
+                lon=site["lon"],
+                lat=site["lat"],
+                width=width,
+                height=height,
+                bbox=box,
+                product=prod,
+                image_format=current_format,
+            )
+            try:
+                resp = client.get(url)
+                if resp.status_code >= 400:
+                    raise WmsError(f"WMS HTTP {resp.status_code}: {resp.text[:300]}")
+                _validate_png_bytes(resp.content, expected_size=(width, height))
+                return resp.content, box, prod
+            except WmsError as exc:
+                last_error = exc
+                if current_format not in {"png8", "image/png8"}:
+                    raise
+                logger.warning("PNG8 WMS response rejected for %s; retrying image/png: %s", radar_id, exc)
+        assert last_error is not None
+        raise last_error
     finally:
         if owns_client:
             client.close()
@@ -139,10 +180,17 @@ def fetch_latest_frame(
     height: int = IMAGE_HEIGHT,
     out_dir: Path | None = None,
     product: str | None = None,
+    image_format: str = "image/png8",
 ) -> Path:
     """Fetch latest frame and save as a timestamped PNG. Returns path."""
     radar_id = radar_id.strip().upper()
-    data, _bbox, _prod = fetch_png_bytes(radar_id, width=width, height=height, product=product)
+    data, _bbox, _prod = fetch_png_bytes(
+        radar_id,
+        width=width,
+        height=height,
+        product=product,
+        image_format=image_format,
+    )
     _validate_png_bytes(data, expected_size=(width, height))
 
     if out_dir is None:
