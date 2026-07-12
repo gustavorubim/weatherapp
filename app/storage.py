@@ -347,3 +347,189 @@ def _normalise_timestamp(value: str | datetime | None) -> datetime | None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.astimezone(timezone.utc)
     return parse_iso_utc(value)
+
+
+def _preview_path_for_frame(radar_id: str, filename: str, detail: dict[str, Any] | None = None) -> Path | None:
+    if detail and detail.get("preview_path"):
+        return Path(str(detail["preview_path"]))
+    stem = Path(filename).stem
+    candidate = radar_dir(radar_id) / "previews" / f"{stem}.webp"
+    return candidate if candidate.is_file() else None
+
+
+def _refresh_metadata_after_delete(radar_id: str, meta: dict[str, Any], removed: set[str]) -> dict[str, Any]:
+    """Drop deleted frame entries and recompute aggregate metadata fields."""
+    rid = radar_id.strip().upper()
+    frame_details = meta.get("frames")
+    if isinstance(frame_details, dict):
+        for name in removed:
+            frame_details.pop(name, None)
+    remaining = list_frames(rid, limit=5000)
+    meta["frame_count"] = len(remaining)
+    meta["disk_bytes"] = frame_disk_bytes(rid)
+    if remaining:
+        last = remaining[-1]
+        detail = (frame_details or {}).get(last["filename"], {}) if isinstance(frame_details, dict) else {}
+        meta["last_frame_utc"] = last.get("utc")
+        meta["last_fetched_at"] = detail.get("fetched_at") or last.get("fetched_at")
+        meta["last_observed_at"] = detail.get("observed_at") or last.get("observed_at")
+        meta["last_source_sha256"] = detail.get("source_sha256") or detail.get("sha256") or meta.get("last_source_sha256")
+        meta["last_stored_sha256"] = detail.get("stored_sha256") or detail.get("sha256") or meta.get("last_stored_sha256")
+        meta["last_sha256"] = meta.get("last_source_sha256") or meta.get("last_sha256")
+    else:
+        meta["last_frame_utc"] = None
+        meta["last_fetched_at"] = None
+        meta["last_observed_at"] = None
+        meta["last_source_sha256"] = None
+        meta["last_stored_sha256"] = None
+        meta["last_sha256"] = None
+    save_metadata(rid, meta)
+    return meta
+
+
+def delete_frame(radar_id: str, filename: str) -> dict[str, Any]:
+    """Delete one archived frame (and its preview) and refresh metadata."""
+    rid = radar_id.strip().upper()
+    if not filename or Path(filename).name != filename or ".." in filename:
+        raise ValueError("Invalid filename")
+    path = frames_dir(rid) / filename
+    if not path.is_file():
+        raise FileNotFoundError(f"Frame not found: {filename}")
+    meta = load_metadata(rid)
+    detail = (meta.get("frames") or {}).get(filename) if isinstance(meta.get("frames"), dict) else {}
+    detail = detail if isinstance(detail, dict) else {}
+    size = path.stat().st_size
+    preview = _preview_path_for_frame(rid, filename, detail)
+    path.unlink()
+    if preview is not None and preview.is_file() and preview != path:
+        try:
+            preview.unlink()
+        except OSError:
+            pass
+    _refresh_metadata_after_delete(rid, meta, {filename})
+    return {
+        "radar_id": rid,
+        "deleted": [filename],
+        "deleted_count": 1,
+        "reclaimed_bytes": size,
+    }
+
+
+def delete_frames(
+    radar_id: str,
+    *,
+    start: datetime | None = None,
+    end: datetime | None = None,
+    before: datetime | None = None,
+    filenames: list[str] | None = None,
+) -> dict[str, Any]:
+    """Delete frames for a radar by filename list and/or time bounds.
+
+    ``before`` is an exclusive upper bound (frames with timestamp < before).
+    ``start``/``end`` are inclusive bounds matching ``list_frames``.
+    """
+    rid = radar_id.strip().upper()
+    if filenames:
+        targets = []
+        for name in filenames:
+            if not name or Path(name).name != name or ".." in name:
+                raise ValueError(f"Invalid filename: {name}")
+            path = frames_dir(rid) / name
+            if path.is_file():
+                ts = parse_frame_timestamp(name)
+                targets.append(
+                    {
+                        "filename": name,
+                        "path": str(path),
+                        "size": path.stat().st_size,
+                        "timestamp": ts,
+                    }
+                )
+    else:
+        end_bound = end
+        if before is not None:
+            # Exclusive before → inclusive end just under the cutoff via list filter.
+            end_bound = before
+        targets = list_frames(rid, start=start, end=end_bound, limit=5000)
+        if before is not None:
+            targets = [frame for frame in targets if frame["timestamp"] < before]
+
+    if not targets:
+        return {"radar_id": rid, "deleted": [], "deleted_count": 0, "reclaimed_bytes": 0}
+
+    meta = load_metadata(rid)
+    frame_details = meta.get("frames") if isinstance(meta.get("frames"), dict) else {}
+    deleted: list[str] = []
+    reclaimed = 0
+    for frame in targets:
+        filename = str(frame["filename"])
+        path = Path(frame["path"])
+        if not path.is_file():
+            continue
+        detail = frame_details.get(filename) if isinstance(frame_details, dict) else {}
+        detail = detail if isinstance(detail, dict) else {}
+        size = int(frame.get("size") or path.stat().st_size)
+        preview = _preview_path_for_frame(rid, filename, detail)
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        if preview is not None and preview.is_file() and preview != path:
+            try:
+                preview.unlink()
+            except OSError:
+                pass
+        deleted.append(filename)
+        reclaimed += size
+
+    if deleted:
+        _refresh_metadata_after_delete(rid, meta, set(deleted))
+    return {
+        "radar_id": rid,
+        "deleted": deleted,
+        "deleted_count": len(deleted),
+        "reclaimed_bytes": reclaimed,
+    }
+
+
+def delete_radar_cache(radar_id: str) -> dict[str, Any]:
+    """Remove all frames (and previews) for a radar, keeping an empty archive shell."""
+    rid = radar_id.strip().upper()
+    result = delete_frames(rid, start=None, end=None)
+    # Clear empty dirs of leftover preview files that had no matching frame entry.
+    preview_dir = radar_dir(rid) / "previews"
+    if preview_dir.is_dir():
+        for path in preview_dir.iterdir():
+            if path.is_file():
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+    return result
+
+
+def list_cached_radars() -> list[dict[str, Any]]:
+    """Summarize each radar directory that has frames or metadata on disk."""
+    ensure_dirs()
+    summaries: list[dict[str, Any]] = []
+    if not CACHE_DIR.exists():
+        return summaries
+    for path in sorted(CACHE_DIR.iterdir()):
+        if not path.is_dir():
+            continue
+        rid = path.name.strip().upper()
+        frames = list_frames(rid, limit=5000)
+        meta = load_metadata(rid)
+        first_utc = frames[0]["utc"] if frames else None
+        last_utc = frames[-1]["utc"] if frames else None
+        summaries.append(
+            {
+                "radar_id": rid,
+                "frame_count": len(frames),
+                "disk_bytes": meta.get("disk_bytes") or frame_disk_bytes(rid),
+                "first_utc": first_utc,
+                "last_utc": last_utc,
+                "product": meta.get("product"),
+            }
+        )
+    return summaries

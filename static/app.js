@@ -5,6 +5,7 @@
     selected: null,
     markers: new Map(),
     frames: [],
+    allFrames: [],
     map: null,
     overlay: null,
     overlayFrames: [],
@@ -14,6 +15,7 @@
     playbackMode: "uniform",
     statusByRadar: new Map(),
     lastExportUrl: null,
+    libraryRadarId: null,
   };
 
   const el = {
@@ -53,6 +55,20 @@
     playbackSpeed: document.getElementById("playback-speed"),
     playbackTimeMode: document.getElementById("playback-time-mode"),
     timezoneMode: document.getElementById("timezone-mode"),
+    tabArchive: document.getElementById("tab-archive"),
+    tabLibrary: document.getElementById("tab-library"),
+    panelArchive: document.getElementById("panel-archive"),
+    panelLibrary: document.getElementById("panel-library"),
+    playbackRange: document.getElementById("playback-range"),
+    playbackStart: document.getElementById("playback-start"),
+    playbackEnd: document.getElementById("playback-end"),
+    btnPlaybackRange: document.getElementById("btn-playback-range"),
+    librarySummary: document.getElementById("library-summary"),
+    libraryList: document.getElementById("library-list"),
+    libraryBefore: document.getElementById("library-before"),
+    btnLibraryTrim: document.getElementById("btn-library-trim"),
+    btnLibraryClear: document.getElementById("btn-library-clear"),
+    libraryMsg: document.getElementById("library-msg"),
   };
 
   function showMsg(node, text, isError = false) {
@@ -73,7 +89,7 @@
     if (radar.kind === "tdwr" || radar.product === "bref1" || radar.product === "brefl") {
       return "#5b9fd4";
     }
-    return "#3dba8a";
+    return "#4a9fd8";
   }
 
   function makeIcon(radar, selected) {
@@ -144,6 +160,108 @@
     el.exportEnd.value = toUtcInput(new Date(last.getTime() + 60 * 1000));
   }
 
+  function setPlaybackWindowFromFrames(frames) {
+    if (!frames.length || !el.playbackStart || !el.playbackEnd) return;
+    el.playbackStart.value = toUtcInput(new Date(frames[0].utc));
+    el.playbackEnd.value = toUtcInput(new Date(frames[frames.length - 1].utc));
+  }
+
+  function filterFramesByPlaybackWindow(frames) {
+    const startIso = utcInputToIso(el.playbackStart && el.playbackStart.value);
+    const endIso = utcInputToIso(el.playbackEnd && el.playbackEnd.value);
+    const startMs = startIso ? Date.parse(startIso) : null;
+    const endMs = endIso ? Date.parse(endIso) : null;
+    return frames.filter((frame) => {
+      const ms = Date.parse(frame.observed_at || frame.utc);
+      if (Number.isNaN(ms)) return true;
+      if (startMs != null && ms < startMs) return false;
+      if (endMs != null && ms > endMs) return false;
+      return true;
+    });
+  }
+
+  function applyPlaybackWindow() {
+    const filtered = filterFramesByPlaybackWindow(state.allFrames);
+    if (!filtered.length) {
+      el.previewEmpty.hidden = false;
+      el.previewEmpty.textContent = "No frames in the selected time window.";
+      el.scrubber.hidden = true;
+      el.btnOverlayPlay.disabled = true;
+      state.frames = [];
+      return;
+    }
+    el.previewEmpty.hidden = true;
+    el.previewEmpty.textContent = "No frames cached for this radar.";
+    el.scrubber.hidden = false;
+    el.scrub.min = 0;
+    el.scrub.max = String(filtered.length - 1);
+    el.scrub.value = String(filtered.length - 1);
+    el.scrubCount.textContent = `${filtered.length} of ${state.allFrames.length} frames`;
+    el.btnOverlayPlay.disabled = false;
+    state.frames = filtered;
+    showFrame(filtered.length - 1);
+  }
+
+  function switchTab(name) {
+    const archive = name === "archive";
+    el.tabArchive.setAttribute("aria-selected", archive ? "true" : "false");
+    el.tabLibrary.setAttribute("aria-selected", archive ? "false" : "true");
+    el.panelArchive.hidden = !archive;
+    el.panelLibrary.hidden = archive;
+    if (!archive) refreshLibrary();
+  }
+
+  function formatBytes(bytes) {
+    const value = Number(bytes) || 0;
+    if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+    if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(2)} MB`;
+    return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  }
+
+  function setLibrarySelection(radarId) {
+    state.libraryRadarId = radarId || null;
+    el.btnLibraryTrim.disabled = !radarId;
+    el.btnLibraryClear.disabled = !radarId;
+    el.libraryList.querySelectorAll(".library-card").forEach((card) => {
+      card.classList.toggle("is-active", card.dataset.radarId === radarId);
+    });
+  }
+
+  async function refreshLibrary() {
+    try {
+      const data = await fetchJSON("/api/storage/radars");
+      const radars = (data.radars || []).filter((r) => Number(r.frame_count) > 0);
+      el.librarySummary.textContent = `${radars.length} radar${radars.length === 1 ? "" : "s"} · ${data.frame_count || 0} frames · ${formatBytes(data.bytes)}`;
+      if (!radars.length) {
+        el.libraryList.innerHTML = `<p class="muted">No cached radars yet.</p>`;
+        setLibrarySelection(null);
+        return;
+      }
+      el.libraryList.innerHTML = radars.map((r) => {
+        const first = r.first_utc ? formatFrameTime(r.first_utc) : "—";
+        const last = r.last_utc ? formatFrameTime(r.last_utc) : "—";
+        const firstInput = r.first_utc ? toUtcInput(new Date(r.first_utc)) : "";
+        return `<div class="library-card" data-radar-id="${r.radar_id}" data-first-utc="${firstInput}" role="button" tabindex="0">
+          <div><span class="id">${r.radar_id}</span></div>
+          <div class="meta">${r.frame_count} frames · ${formatBytes(r.disk_bytes)}<br/>${first} → ${last}</div>
+          <div class="actions">
+            <button class="btn" type="button" data-action="select">Manage</button>
+            <button class="btn" type="button" data-action="open">Open on map</button>
+          </div>
+        </div>`;
+      }).join("");
+      if (state.libraryRadarId && !radars.some((r) => r.radar_id === state.libraryRadarId)) {
+        setLibrarySelection(null);
+      } else if (state.libraryRadarId) {
+        setLibrarySelection(state.libraryRadarId);
+      } else if (state.selected && radars.some((r) => r.radar_id === state.selected.id)) {
+        setLibrarySelection(state.selected.id);
+      }
+    } catch (err) {
+      el.librarySummary.textContent = `Library error: ${err.message}`;
+    }
+  }
+
   function selectRadar(radar) {
     const prev = state.selected;
     state.selected = radar;
@@ -172,9 +290,9 @@
     } else if (radar.kind === "tdwr") {
       support = `<div style="color:#5b9fd4;margin-top:0.35rem">TDWR · product ${radar.product}</div>`;
     } else {
-      support = `<div style="color:#8fa399;margin-top:0.35rem">WSR-88D · product ${radar.product || "sr_bref"}</div>`;
+      support = `<div style="color:#8b9aab;margin-top:0.35rem">WSR-88D · product ${radar.product || "sr_bref"}</div>`;
     }
-    el.selected.innerHTML = `<strong>${radar.id}</strong>${radar.name}<br/><span style="color:#8fa399">${radar.lat.toFixed(3)}, ${radar.lon.toFixed(3)}</span>${support}`;
+    el.selected.innerHTML = `<strong>${radar.id}</strong>${radar.name}<br/><span style="color:#8b9aab">${radar.lat.toFixed(3)}, ${radar.lon.toFixed(3)}</span>${support}`;
 
     el.btnStart.disabled = !canArchive(radar);
     el.btnStop.disabled = false;
@@ -187,28 +305,26 @@
     el.previewImg.hidden = true;
     el.previewImg.removeAttribute("src");
     el.previewEmpty.hidden = false;
+    el.previewEmpty.textContent = "No frames cached for this radar.";
     el.scrubber.hidden = true;
+    if (el.playbackRange) el.playbackRange.hidden = true;
     el.btnOverlayPlay.disabled = true;
     state.frames = [];
+    state.allFrames = [];
   }
 
   async function loadFrames(radarId) {
     try {
       const frames = await fetchJSON(`/api/cache/${radarId}/frames?limit=500`);
-      state.frames = frames;
+      state.allFrames = frames;
       if (!frames.length) {
         clearPreview();
         return;
       }
-      el.previewEmpty.hidden = true;
-      el.scrubber.hidden = false;
-      el.scrub.min = 0;
-      el.scrub.max = String(frames.length - 1);
-      el.scrub.value = String(frames.length - 1);
-      el.scrubCount.textContent = `${frames.length} frames`;
-      el.btnOverlayPlay.disabled = false;
+      if (el.playbackRange) el.playbackRange.hidden = false;
+      setPlaybackWindowFromFrames(frames);
       setExportWindowFromFrames(frames);
-      showFrame(frames.length - 1);
+      applyPlaybackWindow();
     } catch {
       clearPreview();
     }
@@ -299,11 +415,14 @@
     if (!state.selected) return;
     showMsg(el.actionMsg, "Loading map overlay…");
     try {
-      // Prefer all cached frames for overlay so a tight/wrong time window
-      // cannot silently empty the playlist. Export still uses the form range.
-      let data = await fetchJSON(`/api/cache/${state.selected.id}/overlay?limit=500`);
+      const params = new URLSearchParams({ limit: "500" });
+      const startIso = utcInputToIso(el.playbackStart && el.playbackStart.value);
+      const endIso = utcInputToIso(el.playbackEnd && el.playbackEnd.value);
+      if (startIso) params.set("start", startIso);
+      if (endIso) params.set("end", endIso);
+      let data = await fetchJSON(`/api/cache/${state.selected.id}/overlay?${params.toString()}`);
       if (!data.frames.length) {
-        throw new Error("No cached frames yet — start archiving first");
+        throw new Error("No frames in the selected time window — adjust Start/End or archive more");
       }
 
       if (!data.bounds || !Array.isArray(data.bounds) || data.bounds.length !== 2) {
@@ -509,6 +628,83 @@
 
   el.btnOverlayExport.addEventListener("click", () => {
     playOverlayFromCache(Number(el.exportFps.value) || 6);
+  });
+
+  el.tabArchive.addEventListener("click", () => switchTab("archive"));
+  el.tabLibrary.addEventListener("click", () => switchTab("library"));
+
+  if (el.btnPlaybackRange) {
+    el.btnPlaybackRange.addEventListener("click", () => {
+      applyPlaybackWindow();
+      showMsg(el.actionMsg, `Preview window · ${state.frames.length} frames`);
+    });
+  }
+
+  el.libraryList.addEventListener("click", (ev) => {
+    const button = ev.target.closest("button[data-action]");
+    const card = ev.target.closest(".library-card");
+    if (!card) return;
+    const radarId = card.dataset.radarId;
+    if (button && button.dataset.action === "open") {
+      const radar = state.radars.find((r) => r.id === radarId);
+      if (radar) {
+        switchTab("archive");
+        selectRadar(radar);
+        state.map.setView([radar.lat, radar.lon], Math.max(state.map.getZoom(), 7));
+      }
+      return;
+    }
+    setLibrarySelection(radarId);
+    if (card.dataset.firstUtc) {
+      el.libraryBefore.value = card.dataset.firstUtc;
+    }
+  });
+
+  el.btnLibraryTrim.addEventListener("click", async () => {
+    if (!state.libraryRadarId) return;
+    const before = utcInputToIso(el.libraryBefore.value);
+    if (!before) {
+      showMsg(el.libraryMsg, "Choose a UTC time to delete before.", true);
+      return;
+    }
+    if (!window.confirm(`Delete all ${state.libraryRadarId} frames before ${el.libraryBefore.value} UTC?`)) {
+      return;
+    }
+    try {
+      const result = await fetchJSON(`/api/cache/${state.libraryRadarId}/frames/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ before }),
+      });
+      showMsg(el.libraryMsg, `Deleted ${result.deleted_count} frames · freed ${formatBytes(result.reclaimed_bytes)}`);
+      await refreshLibrary();
+      await refreshStatus();
+      if (state.selected && state.selected.id === state.libraryRadarId) {
+        await loadFrames(state.selected.id);
+      }
+    } catch (err) {
+      showMsg(el.libraryMsg, err.message, true);
+    }
+  });
+
+  el.btnLibraryClear.addEventListener("click", async () => {
+    if (!state.libraryRadarId) return;
+    if (!window.confirm(`Delete ALL cached frames for ${state.libraryRadarId}? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      const result = await fetchJSON(`/api/cache/${state.libraryRadarId}`, { method: "DELETE" });
+      showMsg(el.libraryMsg, `Cleared ${result.deleted_count} frames · freed ${formatBytes(result.reclaimed_bytes)}`);
+      await refreshLibrary();
+      await refreshStatus();
+      if (state.selected && state.selected.id === state.libraryRadarId) {
+        clearOverlay();
+        await loadFrames(state.selected.id);
+      }
+      setLibrarySelection(null);
+    } catch (err) {
+      showMsg(el.libraryMsg, err.message, true);
+    }
   });
 
   defaultExportWindow();

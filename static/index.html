@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>RadarVault</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2315201c'/%3E%3Cpath d='M32 10a22 22 0 1 0 22 22' fill='none' stroke='%233dba8a' stroke-width='7'/%3E%3Ccircle cx='32' cy='32' r='5' fill='%23f0b429'/%3E%3C/svg%3E" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23141c26'/%3E%3Cpath d='M32 10a22 22 0 1 0 22 22' fill='none' stroke='%234a9fd8' stroke-width='7'/%3E%3Ccircle cx='32' cy='32' r='5' fill='%23f0b429'/%3E%3C/svg%3E" />
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -25,112 +25,149 @@
         </div>
       </header>
 
-      <section class="block radar-tools" aria-labelledby="radar-tools-title">
-        <h2 id="radar-tools-title">Find a radar</h2>
-        <label class="field-label" for="radar-search">Search by name or radar ID
-          <input id="radar-search" type="search" inputmode="search" autocomplete="off" placeholder="e.g. KTBW or Tampa" />
-        </label>
-        <div class="filter-row" role="group" aria-label="Radar filters">
-          <label class="check-label" for="radar-filter-supported">
-            <input id="radar-filter-supported" type="checkbox" checked />
-            Supported products
+      <div class="panel-tabs" role="tablist" aria-label="Sidebar views">
+        <button id="tab-archive" class="panel-tab" type="button" role="tab" aria-selected="true" aria-controls="panel-archive">Archive</button>
+        <button id="tab-library" class="panel-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-library">Library</button>
+      </div>
+
+      <div id="panel-archive" class="tab-panel" role="tabpanel" aria-labelledby="tab-archive">
+        <section class="block radar-tools" aria-labelledby="radar-tools-title">
+          <h2 id="radar-tools-title">Find a radar</h2>
+          <label class="field-label" for="radar-search">Search by name or radar ID
+            <input id="radar-search" type="search" inputmode="search" autocomplete="off" placeholder="e.g. KTBW or Tampa" />
           </label>
-          <label class="check-label" for="radar-filter-cached">
-            <input id="radar-filter-cached" type="checkbox" />
-            Cached frames
-          </label>
-        </div>
-        <p id="radar-filter-count" class="muted filter-count" aria-live="polite"></p>
-      </section>
-
-      <section class="block selected-block" aria-labelledby="selected-radar-title">
-        <h2 id="selected-radar-title">Selected radar</h2>
-        <div id="selected" class="selected-card empty" tabindex="-1">Click a marker on the map</div>
-        <div class="row">
-          <button id="btn-start" class="btn primary" type="button" disabled>Start archiving</button>
-          <button id="btn-stop" class="btn" type="button" disabled>Stop</button>
-        </div>
-        <p id="action-msg" class="msg" aria-live="polite" role="status" hidden></p>
-      </section>
-
-      <section class="block status-block" aria-labelledby="status-title">
-        <h2 id="status-title">Status</h2>
-        <p id="status-summary" class="status-summary" aria-live="polite">No active archives · No cached frames</p>
-        <div id="status-active" class="status-group">
-          <h3>Active archives</h3>
-          <div id="status-list" class="status-list">No active archives yet.</div>
-        </div>
-        <div id="status-cached" class="status-group" hidden>
-          <h3>Cached radars</h3>
-          <div id="status-cached-list" class="status-list"></div>
-        </div>
-      </section>
-
-      <section class="block">
-        <h2>Preview</h2>
-        <div class="preview-wrap">
-          <img id="preview-img" alt="Latest cached frame" hidden />
-          <p id="preview-empty" class="muted">No frames cached for this radar.</p>
-        </div>
-        <div class="scrubber" id="scrubber" hidden>
-          <label class="sr-only" for="scrub">Frame in archive</label>
-          <input type="range" id="scrub" min="0" max="0" value="0" aria-describedby="scrub-label scrub-count" />
-          <div class="scrub-meta">
-            <span id="scrub-label">—</span>
-            <span id="scrub-count" class="muted"></span>
+          <div class="filter-row" role="group" aria-label="Radar filters">
+            <label class="check-label" for="radar-filter-supported">
+              <input id="radar-filter-supported" type="checkbox" checked />
+              Supported products
+            </label>
+            <label class="check-label" for="radar-filter-cached">
+              <input id="radar-filter-cached" type="checkbox" />
+              Cached frames
+            </label>
           </div>
-        </div>
-        <div class="row overlay-row">
-          <button id="btn-overlay-play" class="btn" type="button" disabled>Play on map</button>
-          <button id="btn-overlay-stop" class="btn" type="button" disabled>Clear overlay</button>
-        </div>
-        <label class="opacity-label" for="overlay-opacity">Overlay opacity
-          <input type="range" id="overlay-opacity" min="20" max="100" value="75" aria-valuetext="75 percent" />
-        </label>
-        <div class="playback-controls" role="group" aria-label="Playback controls">
-          <label class="field-label" for="playback-speed">Playback speed
-            <select id="playback-speed">
-              <option value="4">4 FPS · gentle</option>
-              <option value="6" selected>6 FPS · standard</option>
-              <option value="10">10 FPS · fast</option>
-              <option value="15">15 FPS · export speed</option>
-            </select>
-          </label>
-          <label class="field-label" for="playback-time-mode">Frame timing
-            <select id="playback-time-mode">
-              <option value="uniform" selected>Uniform · smooth</option>
-              <option value="observed">Observed gaps · literal</option>
-            </select>
-          </label>
-          <label class="field-label" for="timezone-mode">Time display
-            <select id="timezone-mode">
-              <option value="utc" selected>UTC</option>
-              <option value="local">Local time</option>
-            </select>
-          </label>
-        </div>
-      </section>
+          <p id="radar-filter-count" class="muted filter-count" aria-live="polite"></p>
+        </section>
 
-      <section class="block">
-        <h2>Generate video</h2>
-        <form id="export-form" class="form">
-          <label for="export-start">Start (UTC)
-            <input type="datetime-local" id="export-start" required />
+        <section class="block selected-block" aria-labelledby="selected-radar-title">
+          <h2 id="selected-radar-title">Selected radar</h2>
+          <div id="selected" class="selected-card empty" tabindex="-1">Click a marker on the map</div>
+          <div class="row">
+            <button id="btn-start" class="btn primary" type="button" disabled>Start archiving</button>
+            <button id="btn-stop" class="btn" type="button" disabled>Stop</button>
+          </div>
+          <p id="action-msg" class="msg" aria-live="polite" role="status" hidden></p>
+        </section>
+
+        <section class="block status-block" aria-labelledby="status-title">
+          <h2 id="status-title">Status</h2>
+          <p id="status-summary" class="status-summary" aria-live="polite">No active archives · No cached frames</p>
+          <div id="status-active" class="status-group">
+            <h3>Active archives</h3>
+            <div id="status-list" class="status-list">No active archives yet.</div>
+          </div>
+          <div id="status-cached" class="status-group" hidden>
+            <h3>Cached radars</h3>
+            <div id="status-cached-list" class="status-list"></div>
+          </div>
+        </section>
+
+        <section class="block">
+          <h2>Preview</h2>
+          <div class="preview-wrap">
+            <img id="preview-img" alt="Latest cached frame" hidden />
+            <p id="preview-empty" class="muted">No frames cached for this radar.</p>
+          </div>
+          <div class="range-row" id="playback-range" hidden>
+            <label class="field-label" for="playback-start">Start (UTC)
+              <input type="datetime-local" id="playback-start" />
+            </label>
+            <label class="field-label" for="playback-end">End (UTC)
+              <input type="datetime-local" id="playback-end" />
+            </label>
+            <button id="btn-playback-range" class="btn" type="button">Apply</button>
+          </div>
+          <div class="scrubber" id="scrubber" hidden>
+            <label class="sr-only" for="scrub">Frame in archive</label>
+            <input type="range" id="scrub" min="0" max="0" value="0" aria-describedby="scrub-label scrub-count" />
+            <div class="scrub-meta">
+              <span id="scrub-label">—</span>
+              <span id="scrub-count" class="muted"></span>
+            </div>
+          </div>
+          <div class="row overlay-row">
+            <button id="btn-overlay-play" class="btn" type="button" disabled>Play on map</button>
+            <button id="btn-overlay-stop" class="btn" type="button" disabled>Clear overlay</button>
+          </div>
+          <label class="opacity-label" for="overlay-opacity">Overlay opacity
+            <input type="range" id="overlay-opacity" min="20" max="100" value="75" aria-valuetext="75 percent" />
           </label>
-          <label for="export-end">End (UTC)
-            <input type="datetime-local" id="export-end" required />
-          </label>
-          <label for="export-fps">FPS
-            <input type="number" id="export-fps" min="1" max="60" value="15" />
-          </label>
-          <button type="submit" class="btn primary" id="btn-export" disabled>Generate MP4</button>
-        </form>
-        <p id="export-msg" class="msg" aria-live="polite" role="status" hidden></p>
-        <div class="row">
-          <a id="export-link" class="download" href="#" hidden>Download video</a>
-          <button id="btn-overlay-export" class="btn" type="button" hidden>Play export on map</button>
-        </div>
-      </section>
+          <div class="playback-controls" role="group" aria-label="Playback controls">
+            <label class="field-label" for="playback-speed">Playback speed
+              <select id="playback-speed">
+                <option value="4">4 FPS · gentle</option>
+                <option value="6" selected>6 FPS · standard</option>
+                <option value="10">10 FPS · fast</option>
+                <option value="15">15 FPS · export speed</option>
+              </select>
+            </label>
+            <label class="field-label" for="playback-time-mode">Frame timing
+              <select id="playback-time-mode">
+                <option value="uniform" selected>Uniform · smooth</option>
+                <option value="observed">Observed gaps · literal</option>
+              </select>
+            </label>
+            <label class="field-label" for="timezone-mode">Time display
+              <select id="timezone-mode">
+                <option value="utc" selected>UTC</option>
+                <option value="local">Local time</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section class="block">
+          <h2>Generate video</h2>
+          <form id="export-form" class="form">
+            <label for="export-start">Start (UTC)
+              <input type="datetime-local" id="export-start" required />
+            </label>
+            <label for="export-end">End (UTC)
+              <input type="datetime-local" id="export-end" required />
+            </label>
+            <label for="export-fps">FPS
+              <input type="number" id="export-fps" min="1" max="60" value="15" />
+            </label>
+            <button type="submit" class="btn primary" id="btn-export" disabled>Generate MP4</button>
+          </form>
+          <p id="export-msg" class="msg" aria-live="polite" role="status" hidden></p>
+          <div class="row">
+            <a id="export-link" class="download" href="#" hidden>Download video</a>
+            <button id="btn-overlay-export" class="btn" type="button" hidden>Play export on map</button>
+          </div>
+        </section>
+      </div>
+
+      <div id="panel-library" class="tab-panel" role="tabpanel" aria-labelledby="tab-library" hidden>
+        <section class="block" aria-labelledby="library-title">
+          <h2 id="library-title">Downloaded data</h2>
+          <p id="library-summary" class="library-summary" aria-live="polite">Loading…</p>
+          <div id="library-list" class="library-list">
+            <p class="muted">No cached radars yet.</p>
+          </div>
+          <div class="library-tools">
+            <p class="muted">Select a radar above, then trim or clear its archive.</p>
+            <label class="field-label" for="library-before">Delete frames before (UTC)
+              <input type="datetime-local" id="library-before" />
+            </label>
+            <div class="row">
+              <button id="btn-library-trim" class="btn" type="button" disabled>Delete before time</button>
+              <button id="btn-library-clear" class="btn danger" type="button" disabled>Delete all frames</button>
+            </div>
+            <p id="library-msg" class="msg" aria-live="polite" role="status" hidden></p>
+          </div>
+        </section>
+      </div>
     </aside>
 
     <main class="map-pane">

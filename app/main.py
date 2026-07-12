@@ -26,7 +26,16 @@ from app.cache_manager import manager
 from app.config import ROOT, VIDEOS_DIR, bbox_3857_to_wgs84, ensure_dirs, radar_bbox_3857
 from app.products import preferred_product, range_for_product, supports_archiving
 from app.radars import fetch_radar_sites, get_radar
-from app.storage import frames_dir, list_frames, load_metadata, parse_iso_utc
+from app.storage import (
+    delete_frame,
+    delete_frames,
+    delete_radar_cache,
+    frames_dir,
+    list_cached_radars,
+    list_frames,
+    load_metadata,
+    parse_iso_utc,
+)
 from app.video import VideoError, ensure_ffmpeg, export_video
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -317,6 +326,13 @@ class RetentionPlanRequest(BaseModel):
     preserve_pinned: bool = True
 
 
+class DeleteFramesRequest(BaseModel):
+    start: Optional[str] = None
+    end: Optional[str] = None
+    before: Optional[str] = None
+    filenames: Optional[list[str]] = None
+
+
 class NowcastRequest(BaseModel):
     lead_minutes: int = Field(default=30, ge=1, le=180)
 
@@ -514,6 +530,89 @@ def _storage_status() -> dict[str, Any]:
 @app.get("/api/storage/status")
 def api_storage_status() -> dict[str, Any]:
     return _storage_status()
+
+
+@app.get("/api/storage/radars")
+def api_storage_radars() -> dict[str, Any]:
+    radars = list_cached_radars()
+    catalog = _catalog()
+    if catalog is not None and hasattr(catalog, "radar_stats"):
+        for item in radars:
+            try:
+                stats = catalog.radar_stats(item["radar_id"])
+                if stats and int(stats.get("frame_count") or 0) > 0:
+                    item["pinned_count"] = int(stats.get("pinned_count") or 0)
+                    item["pinned_bytes"] = int(stats.get("pinned_bytes") or 0)
+                    if not item.get("first_utc"):
+                        item["first_utc"] = stats.get("first_utc")
+                    if not item.get("last_utc"):
+                        item["last_utc"] = stats.get("last_utc")
+            except Exception:  # noqa: BLE001
+                logger.exception("Could not read catalog stats for %s", item["radar_id"])
+    total_bytes = sum(int(item.get("disk_bytes") or 0) for item in radars)
+    total_frames = sum(int(item.get("frame_count") or 0) for item in radars)
+    return {
+        "radars": radars,
+        "radar_count": len(radars),
+        "frame_count": total_frames,
+        "bytes": total_bytes,
+    }
+
+
+def _sync_catalog_deletes(radar_id: str, filenames: list[str]) -> None:
+    catalog = _catalog()
+    if catalog is None or not hasattr(catalog, "delete_frame_record"):
+        return
+    for filename in filenames:
+        try:
+            catalog.delete_frame_record(radar_id, filename)
+        except Exception:  # noqa: BLE001
+            logger.exception("Could not remove catalog row for %s/%s", radar_id, filename)
+
+
+@app.delete("/api/cache/{radar_id}/frames/{filename}")
+def api_delete_frame(radar_id: str, filename: str) -> dict[str, Any]:
+    try:
+        result = delete_frame(radar_id, filename)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _sync_catalog_deletes(result["radar_id"], result["deleted"])
+    return result
+
+
+@app.post("/api/cache/{radar_id}/frames/delete")
+def api_delete_frames(radar_id: str, request: DeleteFramesRequest) -> dict[str, Any]:
+    if not any([request.start, request.end, request.before, request.filenames]):
+        raise HTTPException(
+            status_code=400,
+            detail="Provide start/end, before, or filenames to delete",
+        )
+    try:
+        result = delete_frames(
+            radar_id,
+            start=_parse_optional_utc(request.start),
+            end=_parse_optional_utc(request.end),
+            before=_parse_optional_utc(request.before),
+            filenames=request.filenames,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _sync_catalog_deletes(result["radar_id"], result["deleted"])
+    return result
+
+
+@app.delete("/api/cache/{radar_id}")
+def api_delete_radar_cache(radar_id: str) -> dict[str, Any]:
+    rid = radar_id.strip().upper()
+    try:
+        manager.stop(rid)
+    except Exception:  # noqa: BLE001
+        logger.exception("Could not stop worker before deleting %s", rid)
+    result = delete_radar_cache(rid)
+    _sync_catalog_deletes(result["radar_id"], result["deleted"])
+    return result
 
 
 def _legacy_retention_plan(request: RetentionPlanRequest) -> dict[str, Any]:

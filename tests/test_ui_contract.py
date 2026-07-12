@@ -71,6 +71,19 @@ def test_frozen_and_enhancement_ids_are_present_once() -> None:
         "timezone-mode",
         "reflectivity-legend",
         "map-legend-toggle",
+        "tab-archive",
+        "tab-library",
+        "panel-archive",
+        "panel-library",
+        "playback-start",
+        "playback-end",
+        "btn-playback-range",
+        "library-summary",
+        "library-list",
+        "library-before",
+        "btn-library-trim",
+        "btn-library-clear",
+        "library-msg",
     }
     ids = _parsed().ids
     assert frozen | added <= set(ids)
