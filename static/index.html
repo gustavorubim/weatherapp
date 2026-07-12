@@ -4,9 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>RadarVault</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2315201c'/%3E%3Cpath d='M32 10a22 22 0 1 0 22 22' fill='none' stroke='%233dba8a' stroke-width='7'/%3E%3Ccircle cx='32' cy='32' r='5' fill='%23f0b429'/%3E%3C/svg%3E" />
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -26,19 +24,45 @@
         </div>
       </header>
 
-      <section class="block">
-        <h2>Selected radar</h2>
-        <div id="selected" class="selected empty">Click a marker on the map</div>
-        <div class="row">
-          <button id="btn-start" class="btn primary" disabled>Start archiving</button>
-          <button id="btn-stop" class="btn" disabled>Stop</button>
+      <section class="block radar-tools" aria-labelledby="radar-tools-title">
+        <h2 id="radar-tools-title">Find a radar</h2>
+        <label class="field-label" for="radar-search">Search by name or radar ID
+          <input id="radar-search" type="search" inputmode="search" autocomplete="off" placeholder="e.g. KTBW or Tampa" />
+        </label>
+        <div class="filter-row" role="group" aria-label="Radar filters">
+          <label class="check-label" for="radar-filter-supported">
+            <input id="radar-filter-supported" type="checkbox" checked />
+            Supported products
+          </label>
+          <label class="check-label" for="radar-filter-cached">
+            <input id="radar-filter-cached" type="checkbox" />
+            Cached frames
+          </label>
         </div>
-        <p id="action-msg" class="msg" hidden></p>
+        <p id="radar-filter-count" class="muted filter-count" aria-live="polite"></p>
       </section>
 
-      <section class="block">
-        <h2>Status</h2>
-        <div id="status-list" class="status-list">No active archives yet.</div>
+      <section class="block selected-block" aria-labelledby="selected-radar-title">
+        <h2 id="selected-radar-title">Selected radar</h2>
+        <div id="selected" class="selected-card empty" tabindex="-1">Click a marker on the map</div>
+        <div class="row">
+          <button id="btn-start" class="btn primary" type="button" disabled>Start archiving</button>
+          <button id="btn-stop" class="btn" type="button" disabled>Stop</button>
+        </div>
+        <p id="action-msg" class="msg" aria-live="polite" role="status" hidden></p>
+      </section>
+
+      <section class="block status-block" aria-labelledby="status-title">
+        <h2 id="status-title">Status</h2>
+        <p id="status-summary" class="status-summary" aria-live="polite">No active archives · No cached frames</p>
+        <div id="status-active" class="status-group">
+          <h3>Active archives</h3>
+          <div id="status-list" class="status-list">No active archives yet.</div>
+        </div>
+        <div id="status-cached" class="status-group" hidden>
+          <h3>Cached radars</h3>
+          <div id="status-cached-list" class="status-list"></div>
+        </div>
       </section>
 
       <section class="block">
@@ -48,53 +72,94 @@
           <p id="preview-empty" class="muted">No frames cached for this radar.</p>
         </div>
         <div class="scrubber" id="scrubber" hidden>
-          <input type="range" id="scrub" min="0" max="0" value="0" />
+          <label class="sr-only" for="scrub">Frame in archive</label>
+          <input type="range" id="scrub" min="0" max="0" value="0" aria-describedby="scrub-label scrub-count" />
           <div class="scrub-meta">
             <span id="scrub-label">—</span>
             <span id="scrub-count" class="muted"></span>
           </div>
         </div>
         <div class="row overlay-row">
-          <button id="btn-overlay-play" class="btn" disabled>Play on map</button>
-          <button id="btn-overlay-stop" class="btn" disabled>Clear overlay</button>
+          <button id="btn-overlay-play" class="btn" type="button" disabled>Play on map</button>
+          <button id="btn-overlay-stop" class="btn" type="button" disabled>Clear overlay</button>
         </div>
-        <label class="opacity-label">Overlay opacity
-          <input type="range" id="overlay-opacity" min="20" max="100" value="75" />
+        <label class="opacity-label" for="overlay-opacity">Overlay opacity
+          <input type="range" id="overlay-opacity" min="20" max="100" value="75" aria-valuetext="75 percent" />
         </label>
+        <div class="playback-controls" role="group" aria-label="Playback controls">
+          <label class="field-label" for="playback-speed">Playback speed
+            <select id="playback-speed">
+              <option value="4">4 FPS · gentle</option>
+              <option value="6" selected>6 FPS · standard</option>
+              <option value="10">10 FPS · fast</option>
+              <option value="15">15 FPS · export speed</option>
+            </select>
+          </label>
+          <label class="field-label" for="playback-time-mode">Frame timing
+            <select id="playback-time-mode">
+              <option value="uniform" selected>Uniform · smooth</option>
+              <option value="observed">Observed gaps · literal</option>
+            </select>
+          </label>
+          <label class="field-label" for="timezone-mode">Time display
+            <select id="timezone-mode">
+              <option value="utc" selected>UTC</option>
+              <option value="local">Local time</option>
+            </select>
+          </label>
+        </div>
       </section>
 
       <section class="block">
         <h2>Generate video</h2>
         <form id="export-form" class="form">
-          <label>Start (UTC)
+          <label for="export-start">Start (UTC)
             <input type="datetime-local" id="export-start" required />
           </label>
-          <label>End (UTC)
+          <label for="export-end">End (UTC)
             <input type="datetime-local" id="export-end" required />
           </label>
-          <label>FPS
+          <label for="export-fps">FPS
             <input type="number" id="export-fps" min="1" max="60" value="15" />
           </label>
           <button type="submit" class="btn primary" id="btn-export" disabled>Generate MP4</button>
         </form>
-        <p id="export-msg" class="msg" hidden></p>
+        <p id="export-msg" class="msg" aria-live="polite" role="status" hidden></p>
         <div class="row">
           <a id="export-link" class="download" href="#" hidden>Download video</a>
-          <button id="btn-overlay-export" class="btn" hidden>Play export on map</button>
+          <button id="btn-overlay-export" class="btn" type="button" hidden>Play export on map</button>
         </div>
       </section>
     </aside>
 
     <main class="map-pane">
       <div id="map"></div>
-      <div class="map-legend">
-        <span><i class="dot supported"></i> WSR-88D (sr_bref)</span>
-        <span><i class="dot tdwr"></i> TDWR (bref1)</span>
-        <span><i class="dot unsupported"></i> No archive product</span>
-        <span><i class="dot selected"></i> Selected</span>
+      <div class="map-legend" aria-label="Map legend">
+        <button id="map-legend-toggle" class="legend-toggle" type="button" aria-expanded="true" aria-controls="map-legend-content">Legend</button>
+        <div id="map-legend-content" class="map-legend-content">
+          <div class="marker-legend">
+            <span><i class="dot supported" aria-hidden="true"></i> WSR-88D (sr_bref)</span>
+            <span><i class="dot tdwr" aria-hidden="true"></i> TDWR (bref1)</span>
+            <span><i class="dot unsupported" aria-hidden="true"></i> No archive product</span>
+            <span><i class="dot legend-selected" aria-hidden="true"></i> Selected</span>
+          </div>
+          <div id="reflectivity-legend" class="reflectivity-legend" aria-label="Reflectivity intensity legend">
+            <span class="legend-title">Reflectivity <span class="mono">dBZ</span></span>
+            <div class="palette" role="img" aria-label="Reflectivity palette from minus 20 to 70 decibels of reflectivity">
+              <i style="--swatch:#365c91" title="−20 dBZ"></i>
+              <i style="--swatch:#4aa6c8" title="0 dBZ"></i>
+              <i style="--swatch:#4ccf8b" title="20 dBZ"></i>
+              <i style="--swatch:#f4df43" title="40 dBZ"></i>
+              <i style="--swatch:#f28e32" title="50 dBZ"></i>
+              <i style="--swatch:#d9534f" title="60 dBZ"></i>
+              <i style="--swatch:#f3d5ff" title="70 dBZ"></i>
+            </div>
+            <div class="palette-labels" aria-hidden="true"><span>−20</span><span>0</span><span>20</span><span>40</span><span>50</span><span>60</span><span>70+</span></div>
+          </div>
+        </div>
       </div>
       <div id="overlay-hud" class="overlay-hud" hidden>
-        <button id="hud-pause" class="btn">Pause</button>
+        <button id="hud-pause" class="btn" type="button">Pause</button>
         <span id="hud-label" class="mono">—</span>
       </div>
     </main>
@@ -105,6 +170,7 @@
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin=""
   ></script>
+  <script src="/static/ui_helpers.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>
