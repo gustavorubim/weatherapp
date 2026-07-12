@@ -333,7 +333,7 @@ All derived outputs identify source frame hashes and processing parameters. Raw 
 | WT5 | 5.2 Background video jobs | Not started | 0/8 |
 | WT6 | 6.1 Reflectivity, clutter, and cell tracking | Not started | 0/9 |
 | WT6 | 6.2 Motion nowcast and honest evaluation | Not started | 0/9 |
-| WT7 | 7.1 Merge and application wiring | Blocked on WT1–WT6 | 0/10 |
+| WT7 | 7.1 Merge and application wiring | Shared wiring implemented; lane merges pending | 0/10 |
 | WT7 | 7.2 Migration, performance, and final release | Blocked on 7.1 | 0/13 |
 
 ---
@@ -379,7 +379,11 @@ Visual checks at 1280×720 and 390×844:
 **Evidence**
 
 ```text
-Pending.
+WT7 shared-file bring-up is implemented on `gvr/enhancements-integration`.
+Commands: `pytest -q`; `python -m compileall app`; `node --check static/app.js`; `python -m app.cache_cli status`; `git diff --check`.
+Result: 14 passed; Python compile passed; JavaScript syntax check passed; cache status returned an empty healthy catalog; diff check passed.
+Artifacts: bounded frame/overlay API responses include `preview_url`, `observed_at`, `fetched_at`, hashes, dimensions, and media type; storage writes use atomic replace; async video jobs expose submit/status/cancel; retention and analysis endpoints are safe compatibility fallbacks until WT4–WT6 modules merge.
+Caveats: WT1–WT6 branches currently contain only the shared base commit, so no lane commits were available to merge and the WT7 reward checkboxes remain intentionally unchecked.
 ```
 
 ### Milestone 1.2 — Search, status, and responsive polish
@@ -849,7 +853,11 @@ python -m app.cache_cli status
 **Evidence**
 
 ```text
-Pending.
+WT7 shared-file bring-up is implemented on `gvr/enhancements-integration`.
+Commands: `pytest -q`; `python -m compileall app`; `node --check static/app.js`; `python -m app.cache_cli status`; `git diff --check`.
+Result: 14 passed; Python compile passed; JavaScript syntax check passed; cache status returned an empty healthy catalog; diff check passed.
+Artifacts: bounded frame/overlay API responses include `preview_url`, `observed_at`, `fetched_at`, hashes, dimensions, and media type; storage writes use atomic replace; async video jobs expose submit/status/cancel; retention and analysis endpoints are safe compatibility fallbacks until WT4–WT6 modules merge.
+Caveats: WT1–WT6 branches currently contain only the shared base commit, so no lane commits were available to merge and the WT7 reward checkboxes remain intentionally unchecked.
 ```
 
 ### Milestone 7.2 — Migration, performance, and final release

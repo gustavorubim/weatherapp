@@ -63,6 +63,10 @@ Everything stays under `cache/` and `videos/` on disk.
 | **Map overlay** | Animate cached frames georeferenced over the basemap |
 | **Frame scrubber** | Sidebar preview before you export |
 | **MP4 export** | ffmpeg H.264 (CRF 18, yuv420p, `+faststart`) |
+| **Background video jobs** | Submit, monitor, cancel, and download exports without holding an HTTP request open |
+| **Bounded frame API** | Range/cursor queries with lightweight preview URLs |
+| **Storage operations** | Quota/free-space status and dry-run retention plans |
+| **Optional analysis** | Provenance-labelled cell/nowcast endpoints; disabled by default |
 | **Headless CLI** | Archive for `2d` / `48h` without opening the browser |
 
 **Marker legend**
@@ -338,11 +342,18 @@ Restarting resumes from `metadata.json` and will not re-save an unchanged curren
 | `POST` | `/api/cache/{id}/start` | Start archiving |
 | `POST` | `/api/cache/{id}/stop` | Stop archiving |
 | `GET` | `/api/cache/status` | Per-radar status / disk |
-| `GET` | `/api/cache/{id}/frames` | Frame list |
+| `GET` | `/api/cache/{id}/frames?start=&end=&after=&limit=` | Bounded frame page with `preview_url` and provenance fields |
 | `GET` | `/api/cache/{id}/latest` | Latest PNG |
 | `GET` | `/api/cache/{id}/frame/{file}` | One PNG |
-| `GET` | `/api/cache/{id}/overlay` | Frames + WGS84 bounds for map play |
+| `GET` | `/api/cache/{id}/overlay?start=&end=&after=&limit=` | Bounded frames + WGS84 bounds for map play |
 | `POST` | `/api/videos/export` | Build MP4 → `/videos/{filename}` |
+| `POST` | `/api/videos/jobs` | Queue a background MP4 export |
+| `GET` | `/api/videos/jobs/{job_id}` | Read export progress/status |
+| `POST` | `/api/videos/jobs/{job_id}/cancel` | Request export cancellation |
+| `GET` | `/api/storage/status` | Cache bytes, disk free space, and catalog/config status |
+| `POST` | `/api/storage/retention/plan` | Dry-run deletion plan; never deletes data |
+| `GET` | `/api/analysis/{id}/cells` | Optional, read-only cell detection result |
+| `POST` | `/api/analysis/{id}/nowcast` | Optional, provenance-labelled experimental nowcast |
 
 ---
 
@@ -354,8 +365,16 @@ From `.env` / `.env.example`:
 |----------|---------|---------|
 | `CACHE_DIR` | `cache` | Frame archive root |
 | `VIDEOS_DIR` | `videos` | MP4 output root |
+| `CATALOG_PATH` | `data/catalog.sqlite3` | WT4 frame catalog location |
 | `POLL_INTERVAL_SEC` | `75` | Seconds between polls |
 | `IMAGE_WIDTH` / `IMAGE_HEIGHT` | `2048` | WMS GetMap size |
+| `ARCHIVE_FORMAT` | `png` | Archive format selected by the codec lane (`png`, `png8`, `webp-lossless`) |
+| `PREVIEW_MAX_DIMENSION` | `768` | Maximum preview dimension selected by the codec lane |
+| `RETENTION_MAX_TOTAL_BYTES` | unset | Optional archive quota; unset means no automatic quota |
+| `RETENTION_MAX_AGE_DAYS` | unset | Optional age limit for retention planning |
+| `RETENTION_MIN_FREE_BYTES` | unset | Optional minimum free-disk guard |
+| `JOB_CONCURRENCY` | `1` | Maximum simultaneous background video jobs |
+| `ANALYSIS_ENABLED` | `0` | Enable optional experimental analysis endpoints |
 | `HOST` / `PORT` | `127.0.0.1` / `8000` | Bind address |
 
 ---
@@ -367,6 +386,9 @@ From `.env` / `.env.example`:
 - **Be polite:** default ~75s polling with backoff on errors — don’t hammer the service.
 - **Coverage:** not every WFS site has a reflectivity layer; those stay grey / non-archivable.
 - **Overlay vs MP4:** map play uses georeferenced PNGs; MP4 is for download/playback, not geo-alignment.
+- **Video jobs:** use `/api/videos/jobs` for unattended exports. The legacy synchronous `/api/videos/export` endpoint remains for scripts.
+- **Retention:** `/api/storage/retention/plan` is dry-run only. Automatic deletion is enabled only when the catalog/retention lane is installed and an explicit quota is configured.
+- **Analysis:** cell tracking and nowcasting are experimental, optional, and provenance-labelled. They do not claim severe-weather prediction from reflectivity alone.
 - **Milestones:** see [`PLAN.md`](PLAN.md).
 
 ## License
